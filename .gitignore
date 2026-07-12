@@ -1,0 +1,17 @@
+# Claude Code
+.claude/settings.local.json
+.claude/projects/
+
+# Bash
+*.log
+*.bak
+*.swp
+*.tmp
+.env
+
+# OS
+.DS_Store
+
+# Anglerfish runtime state
+/var/lib/anglerfish/
+*.installed.list
