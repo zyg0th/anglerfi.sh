@@ -1,0 +1,74 @@
+name: Build .deb
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*.*.*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint
+        run: |
+          jq empty package.json
+          bash -n anglerfi.sh
+
+      - name: Compute version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.1.0~beta.$(date +%Y%m%d%H%M).$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build .deb
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          PKG_ROOT="build/anglerfish_${VERSION}_all"
+
+          mkdir -p "$PKG_ROOT/DEBIAN"
+          mkdir -p "$PKG_ROOT/usr/bin"
+          mkdir -p "$PKG_ROOT/etc/anglerfish"
+
+          install -m 755 anglerfi.sh "$PKG_ROOT/usr/bin/anglerfi.sh"
+          install -m 644 package.json "$PKG_ROOT/etc/anglerfish/package.json"
+
+          echo "/etc/anglerfish/package.json" > "$PKG_ROOT/DEBIAN/conffiles"
+
+          cat > "$PKG_ROOT/DEBIAN/control" <<EOF
+          Package: anglerfish
+          Version: ${VERSION}
+          Section: admin
+          Priority: optional
+          Architecture: all
+          Depends: jq, wget, curl, tar, iptables, iptables-persistent
+          Maintainer: zyg0th <core.zyg0th@gmail.com>
+          Description: Unified Package Manager for Pentest Box
+           Wraps apt/go/manual installs behind one CLI so multiple package
+           managers stop stepping on each other on a pentest box.
+           .
+           This is a beta / development build.
+          EOF
+
+          mkdir -p dist
+          dpkg-deb --root-owner-group --build "$PKG_ROOT" "dist/anglerfish_${VERSION}_all.deb"
+          dpkg-deb --info "dist/anglerfish_${VERSION}_all.deb"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anglerfish-deb
+          path: dist/*.deb
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.deb
+          prerelease: true

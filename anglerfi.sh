@@ -24,7 +24,13 @@ SED="$(resolve_bin sed)"
 BASH_BIN="$(resolve_bin bash)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PKG_FILE="${ANGLERFISH_PKG:-$SCRIPT_DIR/package.json}"
+if [ -n "${ANGLERFISH_PKG:-}" ]; then
+    PKG_FILE="$ANGLERFISH_PKG"
+elif [ -f /etc/anglerfish/package.json ]; then
+    PKG_FILE="/etc/anglerfish/package.json"
+else
+    PKG_FILE="$SCRIPT_DIR/package.json"
+fi
 if [ "$(id -u)" -eq 0 ]; then
     STATE_DIR="/var/lib/anglerfish"
 else
