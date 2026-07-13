@@ -7,6 +7,7 @@ set -euo pipefail
 # it invokes (jq, tar, wget, apt-get, ...). Pin a trusted PATH first,
 # then resolve every external binary to an absolute path under it.
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export DEBIAN_FRONTEND=noninteractive
 
 resolve_bin() {
     local bin="$1"
@@ -22,6 +23,25 @@ IPTABLES_SAVE="$(resolve_bin iptables-save)"
 SHA256SUM="$(resolve_bin sha256sum)"
 SED="$(resolve_bin sed)"
 BASH_BIN="$(resolve_bin bash)"
+STAT="$(resolve_bin stat)"
+
+# Only the specific commands that need root get elevated (apt-get, writes
+# under /opt, /etc, iptables, ...). Everything else - go install, jq
+# lookups, check evals - runs as the invoking user, so e.g. `go install`
+# lands in the real user's own $GOPATH instead of root's.
+SUDO_BIN="$(resolve_bin sudo)"
+ELEV=()
+if [ "$(id -u)" -ne 0 ] && [ -n "$SUDO_BIN" ]; then
+    ELEV=("$SUDO_BIN")
+fi
+
+# If the whole script itself was launched via `sudo ...` (SUDO_USER set),
+# HOME is root's, which would send `go install` into /root/go instead of
+# the real user's GOPATH. Drop back to the invoking user for go calls.
+GO_AS_USER=()
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_BIN" ]; then
+    GO_AS_USER=("$SUDO_BIN" -u "$SUDO_USER" -H)
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "${ANGLERFISH_PKG:-}" ]; then
@@ -38,8 +58,41 @@ else
 fi
 STATE_FILE="$STATE_DIR/installed.list"
 
-need_root() {
-    [ "$(id -u)" -eq 0 ] || { echo "anglerfi: run as root" >&2; exit 1; }
+verify_pkg_trusted() {
+    # PKG_FILE feeds install/post_install/remove/check strings straight into
+    # elevated bash -c calls. A low-privileged user's env var (ANGLERFISH_PKG)
+    # or a writable catalog file must never be allowed to decide what a
+    # privileged action runs - that's a privesc, not a feature. Enforce
+    # root ownership + no group/other write bit right at the elevation
+    # boundary, regardless of how PKG_FILE was resolved.
+    local owner perm
+    owner="$("$STAT" -c '%u' "$PKG_FILE" 2>/dev/null)" || {
+        echo "anglerfi: cannot stat '$PKG_FILE', refusing privileged action" >&2
+        exit 1
+    }
+    perm="$("$STAT" -c '%a' "$PKG_FILE" 2>/dev/null)"
+    if [ "$owner" != "0" ]; then
+        echo "anglerfi: refusing privileged action - '$PKG_FILE' is not owned by root (uid $owner)" >&2
+        exit 1
+    fi
+    if [ $(( 8#$perm & 8#022 )) -ne 0 ]; then
+        echo "anglerfi: refusing privileged action - '$PKG_FILE' is group/world-writable (mode $perm)" >&2
+        exit 1
+    fi
+}
+
+need_privilege() {
+    if [ "$(id -u)" -ne 0 ] && [ "${#ELEV[@]}" -eq 0 ]; then
+        echo "anglerfi: root privileges required and 'sudo' not found; install sudo or run as root" >&2
+        exit 1
+    fi
+}
+
+# Like need_privilege, but also for call sites that build an elevated
+# command out of PKG_FILE content (install/post_install/remove/check).
+need_privilege_from_catalog() {
+    need_privilege
+    verify_pkg_trusted
 }
 
 need_jq() {
@@ -99,8 +152,8 @@ install_one() {
             if check_installed "$name" apt; then
                 echo "anglerfi: $name already installed (apt)"
             else
-                need_root
-                "$APT_GET" install -y "$name"
+                need_privilege_from_catalog
+                "${ELEV[@]}" "$APT_GET" install -y "$name"
                 echo "$name" >> "$STATE_FILE"
             fi
             ;;
@@ -111,7 +164,7 @@ install_one() {
                 [ -n "$GO" ] || { echo "anglerfi: go not found, run --setup first" >&2; exit 1; }
                 local gopkg
                 gopkg="$("$JQ" -r --arg n "$name" '.go[] | select(.name==$n) | .package' "$PKG_FILE")"
-                "$GO" install "$gopkg"
+                "${GO_AS_USER[@]}" "$GO" install "$gopkg"
                 echo "$name" >> "$STATE_FILE"
             fi
             ;;
@@ -119,25 +172,25 @@ install_one() {
             if check_installed "$name" manual; then
                 echo "anglerfi: $name already installed (manual)"
             else
-                need_root
+                need_privilege_from_catalog
                 local install_cmd post_cmd artifact expected_hash actual_hash
                 install_cmd="$("$JQ" -r --arg n "$name" '.manual[] | select(.name==$n) | .install' "$PKG_FILE")"
                 post_cmd="$("$JQ" -r --arg n "$name" '.manual[] | select(.name==$n) | .post_install' "$PKG_FILE")"
                 artifact="$("$JQ" -r --arg n "$name" '.manual[] | select(.name==$n) | .artifact' "$PKG_FILE")"
                 expected_hash="$("$JQ" -r --arg n "$name" '.manual[] | select(.name==$n) | .hash' "$PKG_FILE")"
-                mkdir -p /opt
-                "$BASH_BIN" -c "$install_cmd"
+                "${ELEV[@]}" mkdir -p /opt
+                "${ELEV[@]}" "$BASH_BIN" -c "$install_cmd"
 
                 if [ -n "$artifact" ] && [ "$artifact" != "null" ] && [ -n "$expected_hash" ] && [ "$expected_hash" != "null" ]; then
                     actual_hash="$("$SHA256SUM" "$artifact" | cut -d' ' -f1)"
                     if [ "$actual_hash" != "$expected_hash" ]; then
-                        rm -f "$artifact"
+                        "${ELEV[@]}" rm -f "$artifact"
                         echo "anglerfi: hash mismatch for '$name' (expected $expected_hash, got $actual_hash), aborting" >&2
                         exit 1
                     fi
                 fi
 
-                [ -n "$post_cmd" ] && [ "$post_cmd" != "null" ] && "$BASH_BIN" -c "$post_cmd"
+                [ -n "$post_cmd" ] && [ "$post_cmd" != "null" ] && "${ELEV[@]}" "$BASH_BIN" -c "$post_cmd"
                 echo "$name" >> "$STATE_FILE"
             fi
             ;;
@@ -155,24 +208,25 @@ remove_one() {
 
     case "$kind" in
         apt)
-            need_root
-            "$APT_GET" remove -y "$name"
+            need_privilege_from_catalog
+            "${ELEV[@]}" "$APT_GET" remove -y "$name"
             ;;
         go)
             local gobin
-            gobin="$("$GO" env GOPATH 2>/dev/null)/bin/$name"
+            gobin="$("${GO_AS_USER[@]}" "$GO" env GOPATH 2>/dev/null)/bin/$name"
+            echo "PATH: $gobin"
             rm -f "$gobin"
             ;;
         manual)
-            need_root
+            need_privilege_from_catalog
             local remove_cmd
             remove_cmd="$("$JQ" -r --arg n "$name" '.manual[] | select(.name==$n) | .remove' "$PKG_FILE")"
             if [ -n "$remove_cmd" ] && [ "$remove_cmd" != "null" ]; then
-                "$BASH_BIN" -c "$remove_cmd"
+                "${ELEV[@]}" "$BASH_BIN" -c "$remove_cmd"
             else
                 echo "anglerfi: no 'remove' command defined for '$name', falling back to /opt cleanup" >&2
-                rm -rf "/opt/$name"
-                rm -f "/usr/local/bin/$name"
+                "${ELEV[@]}" rm -rf "/opt/$name"
+                "${ELEV[@]}" rm -f "/usr/local/bin/$name"
             fi
             ;;
         none)
@@ -226,43 +280,53 @@ cmd_list() {
 }
 
 cmd_firewall() {
-    need_root
-    [ -n "$IPTABLES" ] || "$APT_GET" install -y iptables
-    IPTABLES="$(resolve_bin iptables)"
-    DEBIAN_FRONTEND=noninteractive "$APT_GET" install -y iptables-persistent >/dev/null 2>&1 || true
-    IPTABLES_SAVE="$(resolve_bin iptables-save)"
-
-    "$IPTABLES" -F
-    "$IPTABLES" -X
-    "$IPTABLES" -P INPUT DROP
-    "$IPTABLES" -P FORWARD DROP
-    "$IPTABLES" -P OUTPUT ACCEPT
-    "$IPTABLES" -A INPUT -i lo -j ACCEPT
-    "$IPTABLES" -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
     case "$1" in
-        desktop)
-            "$IPTABLES" -A INPUT -p tcp --dport 8000 -j ACCEPT
-            "$IPTABLES" -A INPUT -p tcp --dport 8080 -j ACCEPT
-            ;;
-        server)
-            "$IPTABLES" -A INPUT -p tcp --dport 22 -j ACCEPT
-            ;;
+        desktop|server) : ;;
         *)
             echo "anglerfi: --firewall requires 'desktop' or 'server'" >&2
             exit 1
             ;;
     esac
+    need_privilege
 
-    mkdir -p /etc/iptables
-    "$IPTABLES_SAVE" > /etc/iptables/rules.v4
-    [ -n "$SYSTEMCTL" ] && "$SYSTEMCTL" enable netfilter-persistent >/dev/null 2>&1 || true
+    if [ -z "$IPTABLES" ]; then
+        "${ELEV[@]}" "$APT_GET" install -y iptables
+        IPTABLES="$(resolve_bin iptables)"
+    fi
+    "${ELEV[@]}" "$APT_GET" install -y iptables-persistent >/dev/null 2>&1 || true
+    IPTABLES_SAVE="$(resolve_bin iptables-save)"
+
+    "${ELEV[@]}" "$IPTABLES" -F
+    "${ELEV[@]}" "$IPTABLES" -X
+    "${ELEV[@]}" "$IPTABLES" -P INPUT DROP
+    "${ELEV[@]}" "$IPTABLES" -P FORWARD DROP
+    "${ELEV[@]}" "$IPTABLES" -P OUTPUT ACCEPT
+    "${ELEV[@]}" "$IPTABLES" -A INPUT -i lo -j ACCEPT
+    "${ELEV[@]}" "$IPTABLES" -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+    case "$1" in
+        desktop)
+            "${ELEV[@]}" "$IPTABLES" -A INPUT -p tcp --dport 8000 -j ACCEPT
+            "${ELEV[@]}" "$IPTABLES" -A INPUT -p tcp --dport 8080 -j ACCEPT
+            ;;
+        server)
+            "${ELEV[@]}" "$IPTABLES" -A INPUT -p tcp --dport 22 -j ACCEPT
+            ;;
+    esac
+
+    "${ELEV[@]}" mkdir -p /etc/iptables
+    # redirection must happen inside the elevated shell, not the caller's,
+    # or writing to /etc/iptables/rules.v4 fails before sudo even runs
+    "${ELEV[@]}" "$BASH_BIN" -c "\"$IPTABLES_SAVE\" > /etc/iptables/rules.v4"
+    if [ -n "$SYSTEMCTL" ]; then
+        "${ELEV[@]}" "$SYSTEMCTL" enable netfilter-persistent >/dev/null 2>&1 || true
+    fi
 }
 
 cmd_setup() {
-    need_root
-    "$APT_GET" update
-    "$APT_GET" install -y jq golang-go python3-pip pipx cargo
+    need_privilege
+    "${ELEV[@]}" "$APT_GET" update
+    "${ELEV[@]}" "$APT_GET" install -y jq golang-go python3-pip pipx cargo
     JQ="$(resolve_bin jq)"
     GO="$(resolve_bin go)"
     pipx ensurepath || true
