@@ -44,6 +44,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 if [ -n "${ANGLERFISH_PKG:-}" ]; then
     PKG_FILE="$ANGLERFISH_PKG"
 elif [ -f /etc/anglerfish/package.json ]; then
@@ -58,25 +59,23 @@ else
 fi
 STATE_FILE="$STATE_DIR/installed.list"
 
-verify_pkg_trusted() {
-    # PKG_FILE feeds install/post_install/remove/check strings straight into
-    # elevated bash -c calls. A low-privileged user's env var (ANGLERFISH_PKG)
-    # or a writable catalog file must never be allowed to decide what a
-    # privileged action runs - that's a privesc, not a feature. Enforce
-    # root ownership + no group/other write bit right at the elevation
-    # boundary, regardless of how PKG_FILE was resolved.
-    local owner perm
-    owner="$("$STAT" -c '%u' "$PKG_FILE" 2>/dev/null)" || {
-        echo "anglerfi: cannot stat '$PKG_FILE', refusing privileged action" >&2
+# A low-privileged user's env var, writable config, or writable script must
+# never be allowed to decide what a privileged action runs - that's a
+# privesc, not a feature. Enforce root ownership + no group/other write bit
+# on whatever path is passed in, right at the elevation boundary.
+verify_root_owned() {
+    local path="$1" owner perm
+    owner="$("$STAT" -c '%u' "$path" 2>/dev/null)" || {
+        echo "anglerfi: cannot stat '$path', refusing privileged action" >&2
         exit 1
     }
-    perm="$("$STAT" -c '%a' "$PKG_FILE" 2>/dev/null)"
+    perm="$("$STAT" -c '%a' "$path" 2>/dev/null)"
     if [ "$owner" != "0" ]; then
-        echo "anglerfi: refusing privileged action - '$PKG_FILE' is not owned by root (uid $owner)" >&2
+        echo "anglerfi: refusing privileged action - '$path' is not owned by root (uid $owner)" >&2
         exit 1
     fi
     if [ $(( 8#$perm & 8#022 )) -ne 0 ]; then
-        echo "anglerfi: refusing privileged action - '$PKG_FILE' is group/world-writable (mode $perm)" >&2
+        echo "anglerfi: refusing privileged action - '$path' is group/world-writable (mode $perm)" >&2
         exit 1
     fi
 }
@@ -86,13 +85,16 @@ need_privilege() {
         echo "anglerfi: root privileges required and 'sudo' not found; install sudo or run as root" >&2
         exit 1
     fi
+    # If the script itself is editable by a low-privileged user, none of
+    # this matters - they'd just rewrite the logic instead of the catalog.
+    verify_root_owned "$SCRIPT_PATH"
 }
 
 # Like need_privilege, but also for call sites that build an elevated
 # command out of PKG_FILE content (install/post_install/remove/check).
 need_privilege_from_catalog() {
     need_privilege
-    verify_pkg_trusted
+    verify_root_owned "$PKG_FILE"
 }
 
 need_jq() {

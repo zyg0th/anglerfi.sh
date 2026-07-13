@@ -34,10 +34,21 @@ sudo apt install ./anglerfish_<version>_all.deb
 git clone git@github.com:zyg0th/anglerfi.sh.git
 cd anglerfi.sh
 chmod +x anglerfi.sh
-sudo ./anglerfi.sh --setup     # installs jq/go/pip/pipx/cargo toolchains
+./anglerfi.sh -l              # unprivileged actions work as-is
 ```
 
 When run this way, the script falls back to the `package.json` sitting next to it.
+
+**Privileged actions (`apt`/`manual` installs and removes, `--firewall`, `--setup`) require both the script and the catalog to be root-owned and not group/other-writable** — the script refuses otherwise, on purpose (see [Security notes](#security-notes)). A fresh git checkout is owned by you, not root, so those commands will fail until you fix ownership:
+
+```bash
+sudo chown root:root anglerfi.sh package.json
+sudo chmod 755 anglerfi.sh
+sudo chmod 644 package.json
+sudo ./anglerfi.sh --setup
+```
+
+If you don't want to chown your working copy, use Option A instead — the `.deb` sets this up for you.
 
 ## Usage
 
@@ -53,14 +64,16 @@ anglerfi.sh -h, --help                     show this help
 ### Examples
 
 ```bash
-sudo anglerfi.sh -i nmap              # single package (apt-backed)
-sudo anglerfi.sh -i web               # everything in the "web" meta group
-anglerfi.sh -l                        # what's actually installed
-anglerfi.sh -l --all                  # installed + missing, full catalog
-sudo anglerfi.sh -r caido             # remove a manually-installed tool
-sudo anglerfi.sh --firewall desktop   # deny all inbound except 8000/8080
-sudo anglerfi.sh --firewall server    # deny all inbound except 22
+anglerfi.sh -i nmap              # single package (apt-backed) - prompts for sudo itself
+anglerfi.sh -i web               # everything in the "web" meta group
+anglerfi.sh -l                   # what's actually installed
+anglerfi.sh -l --all             # installed + missing, full catalog
+anglerfi.sh -r caido             # remove a manually-installed tool
+anglerfi.sh --firewall desktop   # deny all inbound except 8000/8080
+anglerfi.sh --firewall server    # deny all inbound except 22
 ```
+
+You don't need to prefix `sudo` yourself — the script only elevates the specific commands that need root (`apt-get`, writes under `/opt`/`/etc`, `iptables`, ...) and prompts for your password right when it hits one. `go install` and friends run as your own user throughout, so binaries land in your own `$GOPATH`, not root's.
 
 ## The catalog (`package.json`)
 
@@ -77,7 +90,9 @@ Edit `package.json` to add your own tools or change what a meta group installs.
 
 ## Security notes
 
-- **The catalog is trusted config, not user input.** Every `install`/`post_install`/`remove`/`check` field runs as root. Treat `/etc/anglerfish/package.json` like `/etc/sudoers` — root-owned, not group/world-writable. If you edit it as an unprivileged user, that's a self-inflicted privesc.
+- **Selective elevation, not a root-only process.** The script runs as your own user and only re-execs the specific commands that need root (via `sudo`) — `apt-get`, writes under `/opt`/`/etc`, `iptables`. `go install` and catalog lookups never elevate, so tools land in your own `$GOPATH`, not root's, even if you happen to launch the whole script with `sudo` yourself (it detects `$SUDO_USER` and drops back down for those calls).
+- **The catalog is trusted config, not user input.** Every `install`/`post_install`/`remove`/`check` field runs as root when a privileged action needs it. Treat `/etc/anglerfish/package.json` like `/etc/sudoers` — root-owned, not group/world-writable.
+- **The script enforces this itself, at runtime.** Right before any privileged action, it verifies both `anglerfi.sh` and `package.json` are owned by root with no group/other write bit — and refuses otherwise. This closes the obvious privesc: a low-privileged user pointing `$ANGLERFISH_PKG` at their own file, or editing a writable script/catalog, can't get root to run anything through it. The `.deb` sets correct ownership automatically; a source checkout needs `chown root:root` on both files before privileged commands will run (see [Option B](#option-b-run-from-source)).
 - **Manual installs are hash-verified.** Downloaded artifacts are checked against a pinned sha256 before anything is unpacked or symlinked; a mismatch aborts and deletes the file.
 - **PATH is pinned at startup** (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`) and every external binary the script calls (`jq`, `apt-get`, `go`, `tar`, `sha256sum`, ...) is resolved once against that fixed path — a malicious directory prepended to `$PATH` can't shadow them.
 
