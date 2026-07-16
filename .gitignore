@@ -15,3 +15,7 @@
 # Anglerfish runtime state
 /var/lib/anglerfish/
 *.installed.list
+
+# Local .deb build output
+/build/
+/dist/

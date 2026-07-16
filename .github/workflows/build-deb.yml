@@ -47,7 +47,7 @@ jobs:
           Section: admin
           Priority: optional
           Architecture: all
-          Depends: jq, wget, curl, tar, iptables, iptables-persistent
+          Depends: jq, wget, curl, tar, unzip, python3, iptables, iptables-persistent
           Maintainer: zyg0th <core.zyg0th@gmail.com>
           Description: Unified Package Manager for Pentest Box
            Wraps apt/go/manual installs behind one CLI so multiple package

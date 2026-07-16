@@ -17,6 +17,7 @@ resolve_bin() {
 JQ="$(resolve_bin jq)"
 APT_GET="$(resolve_bin apt-get)"
 GO="$(resolve_bin go)"
+PIPX="$(resolve_bin pipx)"
 SYSTEMCTL="$(resolve_bin systemctl)"
 IPTABLES="$(resolve_bin iptables)"
 IPTABLES_SAVE="$(resolve_bin iptables-save)"
@@ -80,6 +81,24 @@ verify_root_owned() {
     fi
 }
 
+# Linux's execve() already drops set-uid/set-gid on scripts invoked via a
+# #! interpreter line, but that's kernel behavior we don't control, not a
+# guarantee. A setuid-root shell script is never how this tool is meant to
+# gain privilege (it uses sudo, explicitly, per-command) - so if the bit is
+# somehow set, refuse to run at all rather than trust the kernel silently
+# neutralized it.
+check_no_setuid() {
+    local perm
+    perm="$("$STAT" -c '%a' "$SCRIPT_PATH" 2>/dev/null)" || {
+        echo "anglerfi: cannot stat '$SCRIPT_PATH', refusing to run" >&2
+        exit 1
+    }
+    if [ $(( 8#$perm & 8#6000 )) -ne 0 ]; then
+        echo "anglerfi: refusing to run - '$SCRIPT_PATH' has the setuid/setgid bit set (mode $perm), this is not a supported way to run anglerfi.sh" >&2
+        exit 1
+    fi
+}
+
 need_privilege() {
     if [ "$(id -u)" -ne 0 ] && [ "${#ELEV[@]}" -eq 0 ]; then
         echo "anglerfi: root privileges required and 'sudo' not found; install sudo or run as root" >&2
@@ -111,11 +130,13 @@ usage() {
 anglerfi.sh - package manager wrapper for pentesting toolchains
 
 Usage:
-  anglerfi.sh -i, --install <package|meta>   install a package or a full meta group
+  anglerfi.sh -i, --install <package|meta> [-v|--version <ver>]
+                                              install a package or a full meta group
+                                              (-v pins a version for apt/go/pipx; no effect on meta groups or manual)
   anglerfi.sh -r, --remove  <package|meta>   remove a package or a full meta group
-  anglerfi.sh -l, --list [-a|--all]          list installed packages (--all: include missing ones too)
+  anglerfi.sh -l, --list [-a|-all|--all]      list installed packages (--all: include missing ones too)
   anglerfi.sh --firewall <desktop|server>    configure iptables, persisted via iptables-persistent (desktop: allow 8000/8080, server: allow 22)
-  anglerfi.sh -s, --setup                    install go/pip/pipx/cargo toolchains
+  anglerfi.sh -s, --setup                    install go/pipx/cargo toolchains
   anglerfi.sh -h, --help                     show this help
 EOF
 }
@@ -132,6 +153,9 @@ find_kind() {
     if "$JQ" -e --arg n "$name" '.go[] | select(.name==$n)' "$PKG_FILE" >/dev/null; then
         echo go; return
     fi
+    if "$JQ" -e --arg n "$name" '.pipx[]? | select(.name==$n)' "$PKG_FILE" >/dev/null; then
+        echo pipx; return
+    fi
     if "$JQ" -e --arg n "$name" '.manual[] | select(.name==$n)' "$PKG_FILE" >/dev/null; then
         echo manual; return
     fi
@@ -145,32 +169,56 @@ check_installed() {
 }
 
 install_one() {
-    local name="$1"
+    local name="$1" version="${2:-}"
     local kind
     kind="$(find_kind "$name")"
 
     case "$kind" in
         apt)
-            if check_installed "$name" apt; then
+            if [ -z "$version" ] && check_installed "$name" apt; then
                 echo "anglerfi: $name already installed (apt)"
             else
                 need_privilege_from_catalog
-                "${ELEV[@]}" "$APT_GET" install -y "$name"
+                if [ -n "$version" ]; then
+                    "${ELEV[@]}" "$APT_GET" install -y "${name}=${version}"
+                else
+                    "${ELEV[@]}" "$APT_GET" install -y "$name"
+                fi
                 echo "$name" >> "$STATE_FILE"
             fi
             ;;
         go)
-            if check_installed "$name" go; then
+            if [ -z "$version" ] && check_installed "$name" go; then
                 echo "anglerfi: $name already installed (go)"
             else
                 [ -n "$GO" ] || { echo "anglerfi: go not found, run --setup first" >&2; exit 1; }
                 local gopkg
                 gopkg="$("$JQ" -r --arg n "$name" '.go[] | select(.name==$n) | .package' "$PKG_FILE")"
+                [ -n "$version" ] && gopkg="${gopkg%@*}@${version}"
                 "${GO_AS_USER[@]}" "$GO" install "$gopkg"
                 echo "$name" >> "$STATE_FILE"
             fi
             ;;
+        pipx)
+            if [ -z "$version" ] && check_installed "$name" pipx; then
+                echo "anglerfi: $name already installed (pipx)"
+            else
+                [ -n "$PIPX" ] || { echo "anglerfi: pipx not found, run --setup first" >&2; exit 1; }
+                local pipxpkg
+                pipxpkg="$("$JQ" -r --arg n "$name" '.pipx[] | select(.name==$n) | .package' "$PKG_FILE")"
+                if [ -n "$version" ]; then
+                    "$PIPX" install --force "${pipxpkg%%==*}==${version}"
+                else
+                    "$PIPX" install "$pipxpkg"
+                fi
+                echo "$name" >> "$STATE_FILE"
+            fi
+            ;;
         manual)
+            if [ -n "$version" ]; then
+                echo "anglerfi: '$name' is a manual/hash-pinned install, -v/--version isn't supported - edit package.json if you need a different release" >&2
+                exit 1
+            fi
             if check_installed "$name" manual; then
                 echo "anglerfi: $name already installed (manual)"
             else
@@ -219,6 +267,10 @@ remove_one() {
             echo "PATH: $gobin"
             rm -f "$gobin"
             ;;
+        pipx)
+            [ -n "$PIPX" ] || { echo "anglerfi: pipx not found" >&2; exit 1; }
+            "$PIPX" uninstall "$name"
+            ;;
         manual)
             need_privilege_from_catalog
             local remove_cmd
@@ -251,9 +303,13 @@ resolve_targets() {
 }
 
 cmd_install() {
-    local target="$1"
+    local target="$1" version="${2:-}"
+    if [ -n "$version" ] && [ -n "$(meta_members "$target")" ]; then
+        echo "anglerfi: -v/--version only works installing a single package, not meta group '$target'" >&2
+        exit 1
+    fi
     resolve_targets "$target" | while read -r pkg; do
-        [ -n "$pkg" ] && install_one "$pkg"
+        [ -n "$pkg" ] && install_one "$pkg" "$version"
     done
 }
 
@@ -267,8 +323,8 @@ cmd_remove() {
 cmd_list() {
     local show_all="$1"
     local kind name status
-    for kind in apt go manual; do
-        "$JQ" -r --arg k "$kind" '.[$k][] | .name' "$PKG_FILE" | while read -r name; do
+    for kind in apt go pipx manual; do
+        "$JQ" -r --arg k "$kind" '.[$k][]? | .name' "$PKG_FILE" | while read -r name; do
             [ -n "$name" ] || continue
             if check_installed "$name" "$kind"; then
                 status="installed"
@@ -328,13 +384,15 @@ cmd_firewall() {
 cmd_setup() {
     need_privilege
     "${ELEV[@]}" "$APT_GET" update
-    "${ELEV[@]}" "$APT_GET" install -y jq golang-go python3-pip pipx cargo
+    "${ELEV[@]}" "$APT_GET" install -y jq golang-go pipx cargo
     JQ="$(resolve_bin jq)"
     GO="$(resolve_bin go)"
-    pipx ensurepath || true
+    PIPX="$(resolve_bin pipx)"
+    "$PIPX" ensurepath || true
 }
 
 main() {
+    check_no_setuid
     ensure_state 2>/dev/null || true
     need_jq
 
@@ -343,7 +401,12 @@ main() {
     case "$1" in
         -i|--install)
             [ -n "${2:-}" ] || { echo "anglerfi: --install requires an argument" >&2; exit 1; }
-            cmd_install "$2"
+            local install_version=""
+            if [ "${3:-}" = "-v" ] || [ "${3:-}" = "--version" ]; then
+                [ -n "${4:-}" ] || { echo "anglerfi: -v/--version requires an argument" >&2; exit 1; }
+                install_version="$4"
+            fi
+            cmd_install "$2" "$install_version"
             ;;
         -r|--remove)
             [ -n "${2:-}" ] || { echo "anglerfi: --remove requires an argument" >&2; exit 1; }
@@ -351,7 +414,7 @@ main() {
             ;;
         -l|--list)
             case "${2:-}" in
-                -a|--all) cmd_list 1 ;;
+                -a|-all|--all) cmd_list 1 ;;
                 *) cmd_list 0 ;;
             esac
             ;;

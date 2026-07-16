@@ -1,13 +1,12 @@
 {
     "meta": {
-        "web": ["nmap", "nuclei", "httpx", "ffuf", "sqlmap", "nikto", "gobuster", "wpscan", "caido"],
-        "mobile": ["jadx", "adb", "apktool", "scrcpy", "android-studio", "uber-apk-signer", "apkeditor"],
+        "web": ["nmap", "nuclei", "httpx", "ffuf", "sqlmap", "gobuster", "wpscan", "caido"],
+        "mobile": ["jadx", "adb", "apktool", "scrcpy", "android-studio", "uber-apk-signer", "apkeditor", "reflutter", "frida-tools", "pidcat", "hermes-dec", "palera1n"],
         "infra": ["nmap", "subfinder", "masscan", "amass", "netexec"]
     },
     "apt": [
         {"name": "nmap", "version": "latest", "check": "command -v nmap"},
         {"name": "sqlmap", "version": "latest", "check": "command -v sqlmap"},
-        {"name": "nikto", "version": "latest", "check": "command -v nikto"},
         {"name": "gobuster", "version": "latest", "check": "command -v gobuster"},
         {"name": "masscan", "version": "latest", "check": "command -v masscan"},
         {"name": "wpscan", "version": "latest", "check": "command -v wpscan"},
@@ -23,6 +22,11 @@
         {"name": "subfinder", "package": "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest", "check": "command -v subfinder"},
         {"name": "amass", "package": "github.com/owasp-amass/amass/v4/...@master", "check": "command -v amass"},
         {"name": "netexec", "package": "github.com/Pennyw0rth/NetExec@latest", "check": "command -v netexec"}
+    ],
+    "pipx": [
+        {"name": "reflutter", "package": "reflutter==0.8.6", "check": "command -v reflutter"},
+        {"name": "frida-tools", "package": "frida-tools==14.10.4", "check": "command -v frida"},
+        {"name": "hermes-dec", "package": "hermes-dec", "check": "command -v hbc-disassembler"}
     ],
     "manual": [
         {
@@ -60,6 +64,24 @@
             "hash": "a9cd40df818845456be6d696de6110c89edf4b0a0580cb83438ed6b25a366e67",
             "post_install": "printf '#!/bin/sh\\nexec java -jar /opt/apkeditor/apkeditor.jar \"$@\"\\n' > /usr/local/bin/apkeditor && chmod +x /usr/local/bin/apkeditor",
             "remove": "rm -rf /opt/apkeditor && rm -f /usr/local/bin/apkeditor"
+        },
+        {
+            "name": "pidcat",
+            "check": "command -v pidcat",
+            "install": "wget -O /tmp/pidcat.zip https://github.com/JakeWharton/pidcat/archive/refs/tags/2.1.0.zip",
+            "artifact": "/tmp/pidcat.zip",
+            "hash": "a254b585f48037bc015c2f754b514fd3feb80bad910dae74d90a93bcc6d2c929",
+            "post_install": "mkdir -p /opt/pidcat && unzip -o -q /tmp/pidcat.zip -d /tmp/pidcat_extract && cp -r /tmp/pidcat_extract/pidcat-2.1.0/. /opt/pidcat/ && rm -rf /tmp/pidcat_extract /tmp/pidcat.zip && chmod +x /opt/pidcat/pidcat.py && printf '#!/bin/sh\\nexec python3 /opt/pidcat/pidcat.py \"$@\"\\n' > /usr/local/bin/pidcat && chmod +x /usr/local/bin/pidcat",
+            "remove": "rm -rf /opt/pidcat && rm -f /usr/local/bin/pidcat"
+        },
+        {
+            "name": "palera1n",
+            "check": "command -v palera1n",
+            "install": "wget -O /tmp/palera1n.deb https://github.com/palera1n/palera1n/releases/download/v2.3/palera1n_amd64.deb",
+            "artifact": "/tmp/palera1n.deb",
+            "hash": "7c34582989d8a008944976d57767bc0886bc74ebc346c95922072f36dfb77143",
+            "post_install": "apt-get install -y /tmp/palera1n.deb && rm -f /tmp/palera1n.deb",
+            "remove": "apt-get remove -y palera1n"
         }
     ]
 }
