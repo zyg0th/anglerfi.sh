@@ -1,11 +1,12 @@
 {
     "meta": {
-        "web": ["nmap", "nuclei", "httpx", "ffuf", "sqlmap", "gobuster", "wpscan", "caido", "feroxbuster"],
+        "web": ["nuclei", "httpx", "ffuf", "sqlmap", "gobuster", "wpscan", "zaproxy", "feroxbuster"],
         "mobile": ["jadx", "adb", "apktool", "scrcpy", "android-studio", "uber-apk-signer", "apkeditor", "reflutter", "frida-tools", "pidcat", "hermes-dec", "palera1n"],
-        "infra": ["nmap", "subfinder", "masscan", "amass", "netexec", "smbmap", "searchsploit", "python3-impacket", "hashcat", "john", "hydra", "responder", "netcat-openbsd", "socat", "sliver-client", "sliver-server", "metasploit-framework"],
+        "infra": ["nmap", "subfinder", "masscan", "amass", "netexec", "smbmap", "searchsploit", "python3-impacket", "hashcat", "john", "hydra", "responder", "netcat-openbsd", "socat", "sliver-client", "sliver-server", "metasploit-framework", "wireshark", "tcpdump", "bettercap"],
         "references": ["seclists", "payloadsallthethings", "internalallthethings", "hardwareallthethings", "mastg", "wstg", "gtfobins", "lolbas"],
         "osint": ["sherlock", "maigret", "holehe", "theharvester", "libimage-exiftool-perl", "gau", "waybackurls"],
-        "dev": ["clang", "gcc", "neovim", "code"]
+        "dev": ["clang", "gcc", "neovim", "code", "docker-ce", "podman", "vagrant", "virtualbox-7.2"],
+        "wireless": ["aircrack-ng", "wifite", "reaver", "bluez-tools", "libnfc-bin", "mfoc"]
     },
     "apt": [
         {"name": "nmap", "version": "latest", "check": "command -v nmap"},
@@ -33,7 +34,30 @@
             "pre_install": "wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg && printf 'Types: deb\\nURIs: https://packages.microsoft.com/repos/code\\nSuites: stable\\nComponents: main\\nArchitectures: amd64,arm64,armhf\\nSigned-By: /usr/share/keyrings/microsoft.gpg\\n' > /etc/apt/sources.list.d/vscode.sources && apt-get update"
         },
         {"name": "netcat-openbsd", "version": "latest", "check": "command -v nc"},
-        {"name": "socat", "version": "latest", "check": "command -v socat"}
+        {"name": "socat", "version": "latest", "check": "command -v socat"},
+        {"name": "wireshark", "version": "latest", "check": "command -v wireshark"},
+        {"name": "tcpdump", "version": "latest", "check": "command -v tcpdump"},
+        {"name": "bettercap", "version": "latest", "check": "command -v bettercap"},
+        {"name": "aircrack-ng", "version": "latest", "check": "command -v aircrack-ng"},
+        {"name": "wifite", "version": "latest", "check": "command -v wifite"},
+        {"name": "reaver", "version": "latest", "check": "command -v reaver"},
+        {"name": "bluez-tools", "version": "latest", "check": "command -v bt-adapter"},
+        {"name": "libnfc-bin", "version": "latest", "check": "command -v nfc-list"},
+        {"name": "mfoc", "version": "latest", "check": "command -v mfoc"},
+        {"name": "podman", "version": "latest", "check": "command -v podman"},
+        {"name": "vagrant", "version": "latest", "check": "command -v vagrant"},
+        {
+            "name": "docker-ce",
+            "version": "latest",
+            "check": "command -v docker",
+            "pre_install": "mkdir -p /etc/apt/keyrings && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && chmod a+r /etc/apt/keyrings/docker.asc && . /etc/os-release && printf 'Types: deb\\nURIs: https://download.docker.com/linux/debian\\nSuites: %s\\nComponents: stable\\nArchitectures: %s\\nSigned-By: /etc/apt/keyrings/docker.asc\\n' \"$VERSION_CODENAME\" \"$(dpkg --print-architecture)\" > /etc/apt/sources.list.d/docker.sources && apt-get update"
+        },
+        {
+            "name": "virtualbox-7.2",
+            "version": "latest",
+            "check": "command -v virtualbox",
+            "pre_install": "mkdir -p /usr/share/keyrings && wget -qO- https://www.virtualbox.org/download/oracle_vbox_2016.asc | gpg --yes --output /usr/share/keyrings/oracle-virtualbox-2016.gpg --dearmor && . /etc/os-release && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/oracle-virtualbox-2016.gpg] https://download.virtualbox.org/virtualbox/debian ${VERSION_CODENAME} contrib\" > /etc/apt/sources.list.d/virtualbox.list && apt-get update"
+        }
     ],
     "go": [
         {"name": "nuclei", "package": "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest", "check": "command -v nuclei"},
@@ -147,6 +171,24 @@
             "hash": "d12fea4d1339ebecb09d8cc36920d9f5e5e7e9fffbe092b1e1cd09255cc16825",
             "post_install": "chmod +x /tmp/msfinstall && /tmp/msfinstall && rm -f /tmp/msfinstall",
             "remove": "apt-get remove -y metasploit-framework"
+        },
+        {
+            "name": "burpsuite-pro",
+            "check": "command -v burpsuite",
+            "install": "wget -O /tmp/burpsuite_pro.sh 'https://portswigger.net/burp/releases/download?product=pro&type=Linux'",
+            "artifact": "/tmp/burpsuite_pro.sh",
+            "hash": "3217ee3fdabfb35693bc0e3c2f37cd4cf970ee5e58b90735740583575377edf7",
+            "post_install": "chmod +x /tmp/burpsuite_pro.sh && /tmp/burpsuite_pro.sh -q -dir /opt/BurpSuitePro && rm -f /tmp/burpsuite_pro.sh && ln -sf /opt/BurpSuitePro/BurpSuitePro /usr/local/bin/burpsuite && cp -L '/opt/BurpSuitePro/Burp Suite Professional.desktop' /usr/share/applications/burpsuite-pro.desktop",
+            "remove": "/opt/BurpSuitePro/uninstall -q 2>/dev/null; rm -rf /opt/BurpSuitePro && rm -f /usr/local/bin/burpsuite /usr/share/applications/burpsuite-pro.desktop"
+        },
+        {
+            "name": "zaproxy",
+            "check": "command -v zaproxy",
+            "install": "wget -O /tmp/zap.tar.gz https://github.com/zaproxy/zaproxy/releases/download/v2.17.0/ZAP_2.17.0_Linux.tar.gz",
+            "artifact": "/tmp/zap.tar.gz",
+            "hash": "efe799aaa3627db683b43f00c9c210aea0b75c00cc8f0a0f0434d12bb3ddde5a",
+            "post_install": "mkdir -p /opt/zaproxy && tar -xzf /tmp/zap.tar.gz -C /opt/zaproxy --strip-components=1 && rm -f /tmp/zap.tar.gz && chmod +x /opt/zaproxy/zap.sh && ln -sf /opt/zaproxy/zap.sh /usr/local/bin/zaproxy && printf '[Desktop Entry]\\nName=OWASP ZAP\\nComment=Free web app scanner/proxy\\nExec=/opt/zaproxy/zap.sh\\nIcon=/opt/zaproxy/zap.ico\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/zaproxy.desktop",
+            "remove": "rm -rf /opt/zaproxy && rm -f /usr/local/bin/zaproxy /usr/share/applications/zaproxy.desktop"
         }
     ],
     "git": [

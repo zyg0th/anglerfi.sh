@@ -1,0 +1,190 @@
+.TH ANGLERFI.SH 1 "2026-07-18" "anglerfish" "User Commands"
+.SH NAME
+anglerfi.sh, af \- unified package manager wrapper for offensive security toolchains
+.SH SYNOPSIS
+.B anglerfi.sh
+.RB { \-i | \-\-install }
+.I package\fR|\fImeta
+.RB [ \-v | \-\-version
+.IR ver ]
+.RI [ \- pkg " ...] [" + pkg " ...]"
+.br
+.B anglerfi.sh
+.RB { \-r | \-\-remove }
+.I package\fR|\fImeta
+.br
+.B anglerfi.sh
+.RB { \-l | \-\-list }
+.RB [ \-a | \-all | \-\-all ]
+.br
+.B anglerfi.sh
+.B \-\-firewall
+.RB { desktop | server }
+.br
+.B anglerfi.sh
+.RB { \-s | \-\-setup }
+.br
+.B anglerfi.sh
+.RB { \-h | \-\-help }
+.SH DESCRIPTION
+.B anglerfi.sh
+wraps
+.BR apt (8),
+\fBgo install\fR, \fBpipx\fR, \fBgit\fR, and one-off hash-verified downloads
+behind a single CLI and one editable JSON catalog
+.RI ( package.json ),
+so installing, listing, and removing an offensive security toolset is one
+consistent
+command regardless of which underlying package manager a given tool
+actually uses.
+.PP
+The script only elevates the specific commands that need root
+(\fBapt-get\fR, writes under \fB/opt\fR or \fB/etc\fR, \fBiptables\fR) via
+.BR sudo (8),
+prompting for a password only when it actually hits one of those. Everything
+else, including \fBgo install\fR, runs as the invoking user.
+.PP
+When installed via the \fB.deb\fR, the catalog lives at
+\fI/etc/anglerfish/package.json\fR (a conffile, so local edits survive
+upgrades) and both it and \fI/usr/bin/anglerfi.sh\fR are root-owned. The
+script refuses to run any privileged action, and refuses to run at all if
+it carries the setuid or setgid bit, unless both the script and the
+catalog it's using are owned by root and not group/other-writable \(em
+this is enforced at runtime, not just at install time.
+.B af
+is a plain symlink to \fBanglerfi.sh\fR shipped by the \fB.deb\fR, for
+less typing.
+.SH OPTIONS
+.TP
+.BR \-i ", " \-\-install \ \fIpackage\fR|\fImeta\fR
+Install a single package, or every member of a named \fBmeta\fR group from
+the catalog.
+.TP
+.BR \-v ", " \-\-version \ \fIver\fR
+Pin or override the version to install. Only valid when exactly one
+package ends up being installed after any \fB\-pkg\fR/\fB+pkg\fR are
+applied \(em rejected for anything that resolves to more or fewer than
+one package, and for \fBmanual\fR-kind installs (those are hash-pinned to
+one specific artifact; edit \fIpackage.json\fR for a different release).
+For \fBapt\fR this becomes \fIname\fR=\fIver\fR; for \fBgo\fR it rewrites
+the \fI@version\fR suffix; for \fBpipx\fR it forces a reinstall
+(\fB\-\-force\fR) at that pin, bypassing the normal "already installed"
+skip so it can also downgrade.
+.TP
+.RI \- pkg
+When installing a \fBmeta\fR group, drop \fIpkg\fR from the members that
+would otherwise be installed. Can be repeated. Rejected against a single
+(non-meta) package.
+.TP
+.RI + pkg
+When installing a \fBmeta\fR group, install \fIpkg\fR in addition to the
+group's members for this run only, without editing \fIpackage.json\fR. If
+\fIpkg\fR is itself the name of a meta group, every one of its members is
+added instead (so several meta groups can be merged into a single run).
+Can be repeated. Rejected against a single (non-meta) package.
+.IP
+\fB\-pkg\fR and \fB+pkg\fR can be combined and given in any order: the
+full set (target group plus every added group/package) is assembled first,
+then every exclusion is subtracted from that combined set, and the result
+is deduplicated \(em so excluding a package that only exists because of a
+\fB+meta\fR addition still removes it, regardless of where the flags fall
+on the command line.
+.TP
+.BR \-r ", " \-\-remove \ \fIpackage\fR|\fImeta\fR
+Remove a single package, or every member of a named \fBmeta\fR group.
+.TP
+.BR \-l ", " \-\-list \ [ \-a | \-all | \-\-all ]
+List packages from the catalog and whether each is currently installed.
+Without \fB\-a\fR/\fB\-\-all\fR, only installed packages are shown.
+.TP
+.B \-\-firewall \ {desktop|server}
+Configure \fBiptables\fR via \fBiptables-persistent\fR: deny all inbound
+except loopback and established connections, plus 8000/8080
+(\fBdesktop\fR) or 22 (\fBserver\fR).
+.TP
+.BR \-s ", " \-\-setup
+Install the \fBgo\fR, \fBpipx\fR, \fBgit\fR, and \fBcargo\fR toolchains
+needed by the corresponding catalog kinds.
+.TP
+.BR \-h ", " \-\-help
+Show usage and exit.
+.SH THE CATALOG
+\fIpackage.json\fR has a \fBmeta\fR section (named bundles of package
+names) and one section per install kind:
+.TP
+.B apt
+A thin wrapper around \fBapt-get install\fR. An optional \fBpre_install\fR
+command runs once before the install, for vendors that ship their own apt
+repository (GPG key + sources entry) instead of living in the default
+Debian/Ubuntu repos.
+.TP
+.B go
+Wraps \fBgo install\fR \fImodule\fR@\fIversion\fR.
+.TP
+.B pipx
+Wraps \fBpipx install\fR for Python CLI tools, kept out of the system
+\fBpip\fR.
+.TP
+.B git
+Shallow-clones (\fB\-\-depth 1\fR) a repository into \fI/opt/\fIname\fR,
+optionally at a pinned ref, then runs a \fBpost_clone\fR command. No hash
+pinning \(em intended for tools meant to track upstream via their own
+update mechanism.
+.TP
+.B manual
+For anything with no package manager: downloads an artifact, verifies it
+against a pinned sha256 \fBhash\fR before unpacking or symlinking anything,
+then runs \fBpost_install\fR.
+.SH FILES
+.TP
+.I /etc/anglerfish/package.json
+The tool catalog, when installed via the \fB.deb\fR (root-owned conffile).
+.TP
+.I package.json
+Catalog fallback when the script is run from a source checkout, or when
+\fBANGLERFISH_PKG\fR is unset.
+.TP
+.I /var/lib/anglerfish/installed.list
+.TQ
+.I $XDG_STATE_HOME/anglerfish/installed.list
+Install log (root's when run as root, the invoking user's otherwise).
+.SH ENVIRONMENT
+.TP
+.B ANGLERFISH_PKG
+Overrides the catalog path. Ignored for any privileged action unless it
+too is root-owned and not group/other-writable \(em pointing this at an
+attacker-writable file cannot be used to run arbitrary privileged
+commands.
+.SH EXAMPLES
+.TP
+.B anglerfi.sh \-i nmap
+Install a single apt-backed package.
+.TP
+.B anglerfi.sh \-i nmap \-v 7.94
+Pin a specific apt version.
+.TP
+.B anglerfi.sh \-i web
+Install everything in the \(dqweb\(dq meta group.
+.TP
+.B anglerfi.sh \-i web \-zaproxy +burpsuite\-pro
+Install the \(dqweb\(dq group, skipping zaproxy, plus burpsuite\-pro.
+.TP
+.B anglerfi.sh \-i web +infra +osint
+Merge three meta groups into a single run.
+.TP
+.B anglerfi.sh \-l \-\-all
+Show the full catalog with installed/missing status.
+.TP
+.B anglerfi.sh \-\-firewall desktop
+Lock down inbound traffic except 8000/8080.
+.SH SECURITY CONSIDERATIONS
+The catalog is trusted configuration, not user input: every
+\fBinstall\fR/\fBpost_install\fR/\fBpre_install\fR/\fBpost_clone\fR/\fBremove\fR/\fBcheck\fR
+field runs as root when a privileged action needs it. Treat it like
+\fI/etc/sudoers\fR.
+.SH SEE ALSO
+.BR apt-get (8),
+.BR sudo (8),
+.BR iptables (8)
+.SH AUTHOR
+zyg0th

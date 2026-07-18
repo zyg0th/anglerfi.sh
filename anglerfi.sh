@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Anglerfish - unified package manager wrapper for pentesting toolchains
+# Anglerfish - unified package manager wrapper for offensive security toolchains
 set -euo pipefail
 
 # Neutralize PATH hijacking: this script runs as root under sudo, so a
@@ -133,12 +133,13 @@ ensure_state() {
 
 usage() {
     cat <<'EOF'
-anglerfi.sh - package manager wrapper for pentesting toolchains
+anglerfi.sh - package manager wrapper for offensive security toolchains
 
 Usage:
-  anglerfi.sh -i, --install <package|meta> [-v|--version <ver>]
+  anglerfi.sh -i, --install <package|meta> [-v|--version <ver>] [-pkg ...] [+pkg ...]
                                               install a package or a full meta group
-                                              (-v pins a version for apt/go/pipx; no effect on meta groups or manual)
+                                              (-v pins a version for apt/go/pipx, only when exactly one package resolves; rejected for manual)
+                                              (-pkg excludes a member from a meta group; +pkg adds an extra package to the run; both rejected for a single package)
   anglerfi.sh -r, --remove  <package|meta>   remove a package or a full meta group
   anglerfi.sh -l, --list [-a|-all|--all]      list installed packages (--all: include missing ones too)
   anglerfi.sh --firewall <desktop|server>    configure iptables, persisted via iptables-persistent (desktop: allow 8000/8080, server: allow 22)
@@ -336,24 +337,56 @@ remove_one() {
     "$SED" -i "/^$name\$/d" "$STATE_FILE" 2>/dev/null || true
 }
 
+# excludes_csv/adds_csv let a meta expansion be customized per-run
+# (`-i web -zaproxy +burpsuite-pro`) without editing package.json.
 resolve_targets() {
-    local target="$1"
-    local members
+    local target="$1" excludes_csv="${2:-}" adds_csv="${3:-}"
+    local members ex ad ad_members
     members="$(meta_members "$target")"
-    if [ -n "$members" ]; then
-        echo "$members"
-    else
-        echo "$target"
+    [ -n "$members" ] || members="$target"
+    # Union first (target + every +pkg/+meta), then subtract -pkg from that
+    # combined set - otherwise excluding something that only exists via a
+    # +meta addition (e.g. `-i web +infra -nmap`, nmap isn't in web at all)
+    # would silently fail to remove it.
+    if [ -n "$adds_csv" ]; then
+        while IFS= read -r ad; do
+            if [ -n "$ad" ]; then
+                # +<name> expands to every member if <name> is itself a meta
+                # group (e.g. `-i web +infra`), otherwise it's a plain package.
+                ad_members="$(meta_members "$ad")"
+                [ -n "$ad_members" ] || ad_members="$ad"
+                members="$(printf '%s\n%s' "$members" "$ad_members")"
+            fi
+        done <<< "$(echo "$adds_csv" | tr ',' '\n')"
     fi
+    if [ -n "$excludes_csv" ]; then
+        while IFS= read -r ex; do
+            [ -n "$ex" ] && members="$(echo "$members" | grep -vFx "$ex")"
+        done <<< "$(echo "$excludes_csv" | tr ',' '\n')"
+    fi
+    printf '%s\n' "$members" | grep . | sort -u || true
 }
 
 cmd_install() {
-    local target="$1" version="${2:-}"
-    if [ -n "$version" ] && [ -n "$(meta_members "$target")" ]; then
-        echo "anglerfi.sh: -v/--version only works installing a single package, not meta group '$target'" >&2
+    local target="$1" version="${2:-}" excludes_csv="${3:-}" adds_csv="${4:-}"
+    local resolved count
+    if [ -n "$(meta_members "$target")" ]; then
+        :
+    elif [ -n "$excludes_csv" ] || [ -n "$adds_csv" ]; then
+        echo "anglerfi.sh: -pkg/+pkg only make sense against a meta group, '$target' is a single package" >&2
         exit 1
     fi
-    resolve_targets "$target" | while read -r pkg; do
+    resolved="$(resolve_targets "$target" "$excludes_csv" "$adds_csv")"
+    count="$(printf '%s\n' "$resolved" | grep -c . || true)"
+    if [ "$count" -eq 0 ]; then
+        echo "anglerfi.sh: nothing to install - every member of '$target' was excluded" >&2
+        exit 1
+    fi
+    if [ -n "$version" ] && [ "$count" -ne 1 ]; then
+        echo "anglerfi.sh: -v/--version only works when exactly one package is being installed (got $count for '$target')" >&2
+        exit 1
+    fi
+    printf '%s\n' "$resolved" | while read -r pkg; do
         [ -n "$pkg" ] && install_one "$pkg" "$version"
     done
 }
@@ -447,12 +480,30 @@ main() {
     case "$1" in
         -i|--install)
             [ -n "${2:-}" ] || { echo "anglerfi.sh: --install requires an argument" >&2; exit 1; }
-            local install_version=""
-            if [ "${3:-}" = "-v" ] || [ "${3:-}" = "--version" ]; then
-                [ -n "${4:-}" ] || { echo "anglerfi.sh: -v/--version requires an argument" >&2; exit 1; }
-                install_version="$4"
-            fi
-            cmd_install "$2" "$install_version"
+            local install_target="$2" install_version="" install_excludes="" install_adds=""
+            shift 2
+            while [ "$#" -gt 0 ]; do
+                case "$1" in
+                    -v|--version)
+                        [ -n "${2:-}" ] || { echo "anglerfi.sh: -v/--version requires an argument" >&2; exit 1; }
+                        install_version="$2"
+                        shift 2
+                        ;;
+                    -?*)
+                        install_excludes="${install_excludes:+$install_excludes,}${1#-}"
+                        shift
+                        ;;
+                    +?*)
+                        install_adds="${install_adds:+$install_adds,}${1#+}"
+                        shift
+                        ;;
+                    *)
+                        echo "anglerfi.sh: unexpected argument '$1' after --install" >&2
+                        exit 1
+                        ;;
+                esac
+            done
+            cmd_install "$install_target" "$install_version" "$install_excludes" "$install_adds"
             ;;
         -r|--remove)
             [ -n "${2:-}" ] || { echo "anglerfi.sh: --remove requires an argument" >&2; exit 1; }
