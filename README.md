@@ -23,9 +23,10 @@ Grab the latest build from [GitHub Actions artifacts](../../actions/workflows/bu
 sudo apt install ./anglerfish_<version>_all.deb
 ```
 
-`apt` (not `dpkg -i`) resolves dependencies (`jq`, `wget`, `curl`, `tar`, `unzip`, `python3`, `iptables`, `iptables-persistent`) automatically. This installs:
+`apt` (not `dpkg -i`) resolves dependencies (`jq`, `wget`, `curl`, `tar`, `unzip`, `python3`, `git`, `iptables`, `iptables-persistent`) automatically. This installs:
 
 - `/usr/bin/anglerfi.sh` — the CLI, root:root 755
+- `/usr/bin/af` — a symlink to `anglerfi.sh`, so you don't have to type the whole name
 - `/etc/anglerfish/package.json` — the catalog, root:root 644, marked as a conffile (your edits survive upgrades)
 
 ### Option B — run from source
@@ -85,8 +86,8 @@ You don't need to prefix `sudo` yourself — the script only elevates the specif
 
 Six sections:
 
-- **`meta`** — named bundles (`web`, `mobile`, `infra`, `references`) mapping to a list of package names. `-i web` expands and installs each member. Wordlists/guides live in their own `references` bundle instead of being forced onto everyone installing `web`/`mobile`/`infra` — nobody should have to eat a 3.4GB SecLists clone just to get `ffuf`.
-- **`apt`** — thin wrapper around `apt-get install`. `check` decides if it's already present.
+- **`meta`** — named bundles (`web`, `mobile`, `infra`, `references`, `osint`, `dev`) mapping to a list of package names. `-i web` expands and installs each member. Wordlists/guides live in their own `references` bundle instead of being forced onto everyone installing `web`/`mobile`/`infra` — nobody should have to eat a 3.4GB SecLists clone just to get `ffuf`.
+- **`apt`** — thin wrapper around `apt-get install`. `check` decides if it's already present. Optional `pre_install` runs once before the install (e.g. adding a vendor's apt repo + GPG key) for packages that aren't in the default Debian/Ubuntu repos but ship their own — no hash to pin or re-check on every upstream release, since the vendor's repo is the trust mechanism from then on (see `code`, VS Code's real apt package name).
 - **`go`** — wraps `go install <module>@version`.
 - **`pipx`** — wraps `pipx install <spec>` for Python CLI tools that shouldn't pollute the system `pip`.
 - **`git`** — shallow-clones (`--depth 1`) a `repo` into `/opt/<name>`, optionally at a specific `ref` (tag/branch), then runs `post_clone` (symlinking, wrapper scripts). No hash pinning — trades that off for tools that are meant to track upstream (e.g. `searchsploit`'s own `-u` update path expects a real git checkout it can `git pull`). Use this instead of `manual` when the upstream project *is* the git repo (a script/source tree you'd otherwise `git clone` by hand), not when the real artifact is a separately-built release binary.
@@ -94,7 +95,9 @@ Six sections:
 
 All `manual`-kind downloads are pinned to `linux-x86_64`/`amd64` builds — no arm/aarch64 support yet.
 
-Bundled today: `nmap`, `nuclei`, `httpx`, `ffuf`, `sqlmap`, `gobuster`, `wpscan`, `caido`, `subfinder`, `masscan`, `amass`, `netexec`, `smbmap`, `python3-impacket`, `hashcat`, `john`, `hydra`, `jadx`, `adb`, `apktool`, `scrcpy`, `android-studio`, `uber-apk-signer`, `apkeditor`, `reflutter`, `frida-tools`, `hermes-dec`, `palera1n`, `pidcat`, `searchsploit`, `feroxbuster`, `seclists`, `payloadsallthethings`, `internalallthethings`, `hardwareallthethings`, `mastg`, `wstg`, `gtfobins`, `lolbas`.
+Bundled today: `nmap`, `nuclei`, `httpx`, `ffuf`, `sqlmap`, `gobuster`, `wpscan`, `caido`, `subfinder`, `masscan`, `amass`, `netexec`, `smbmap`, `python3-impacket`, `hashcat`, `john`, `hydra`, `jadx`, `adb`, `apktool`, `scrcpy`, `android-studio`, `uber-apk-signer`, `apkeditor`, `reflutter`, `frida-tools`, `hermes-dec`, `palera1n`, `pidcat`, `searchsploit`, `feroxbuster`, `seclists`, `payloadsallthethings`, `internalallthethings`, `hardwareallthethings`, `mastg`, `wstg`, `gtfobins`, `lolbas`, `sherlock`, `maigret`, `holehe`, `theharvester`, `libimage-exiftool-perl`, `gau`, `waybackurls`, `clang`, `gcc`, `neovim`, `code` (VS Code).
+
+`theharvester`'s PyPI package is a stale, unmaintained `0.0.1` stub — the real project (currently `4.11.1`) never publishes proper releases there. Installing it straight would be a textbook dependency-confusion trap, so its `pipx` entry points `package` at `git+https://github.com/laramies/theHarvester.git` instead of the PyPI name, building from the real source (confirmed the resulting wheel's entry points match).
 
 `gtfobins`/`lolbas` are `.desktop` shortcuts, not clones — they just open the live sites (`gtfobins.org`, `lolbas-project.github.io`) in your default browser via `xdg-open`. No git clone, no Ruby/Jekyll toolchain: internet access is already assumed for basically everything else in this catalog, so a local build added nothing but disk and maintenance cost.
 

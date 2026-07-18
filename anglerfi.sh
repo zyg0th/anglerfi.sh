@@ -73,16 +73,16 @@ STATE_FILE="$STATE_DIR/installed.list"
 verify_root_owned() {
     local path="$1" owner perm
     owner="$("$STAT" -c '%u' "$path" 2>/dev/null)" || {
-        echo "anglerfi: cannot stat '$path', refusing privileged action" >&2
+        echo "anglerfi.sh: cannot stat '$path', refusing privileged action" >&2
         exit 1
     }
     perm="$("$STAT" -c '%a' "$path" 2>/dev/null)"
     if [ "$owner" != "0" ]; then
-        echo "anglerfi: refusing privileged action - '$path' is not owned by root (uid $owner)" >&2
+        echo "anglerfi.sh: refusing privileged action - '$path' is not owned by root (uid $owner)" >&2
         exit 1
     fi
     if [ $(( 8#$perm & 8#022 )) -ne 0 ]; then
-        echo "anglerfi: refusing privileged action - '$path' is group/world-writable (mode $perm)" >&2
+        echo "anglerfi.sh: refusing privileged action - '$path' is group/world-writable (mode $perm)" >&2
         exit 1
     fi
 }
@@ -96,18 +96,18 @@ verify_root_owned() {
 check_no_setuid() {
     local perm
     perm="$("$STAT" -c '%a' "$SCRIPT_PATH" 2>/dev/null)" || {
-        echo "anglerfi: cannot stat '$SCRIPT_PATH', refusing to run" >&2
+        echo "anglerfi.sh: cannot stat '$SCRIPT_PATH', refusing to run" >&2
         exit 1
     }
     if [ $(( 8#$perm & 8#6000 )) -ne 0 ]; then
-        echo "anglerfi: refusing to run - '$SCRIPT_PATH' has the setuid/setgid bit set (mode $perm), this is not a supported way to run anglerfi.sh" >&2
+        echo "anglerfi.sh: refusing to run - '$SCRIPT_PATH' has the setuid/setgid bit set (mode $perm), this is not a supported way to run anglerfi.sh" >&2
         exit 1
     fi
 }
 
 need_privilege() {
     if [ "$(id -u)" -ne 0 ] && [ "${#ELEV[@]}" -eq 0 ]; then
-        echo "anglerfi: root privileges required and 'sudo' not found; install sudo or run as root" >&2
+        echo "anglerfi.sh: root privileges required and 'sudo' not found; install sudo or run as root" >&2
         exit 1
     fi
     # If the script itself is editable by a low-privileged user, none of
@@ -123,7 +123,7 @@ need_privilege_from_catalog() {
 }
 
 need_jq() {
-    [ -n "$JQ" ] || { echo "anglerfi: jq required, run --setup or apt install jq" >&2; exit 1; }
+    [ -n "$JQ" ] || { echo "anglerfi.sh: jq required, run --setup or apt install jq" >&2; exit 1; }
 }
 
 ensure_state() {
@@ -185,9 +185,12 @@ install_one() {
     case "$kind" in
         apt)
             if [ -z "$version" ] && check_installed "$name" apt; then
-                echo "anglerfi: $name already installed (apt)"
+                echo "anglerfi.sh: $name already installed (apt)"
             else
                 need_privilege_from_catalog
+                local pre_cmd
+                pre_cmd="$("$JQ" -r --arg n "$name" '.apt[] | select(.name==$n) | .pre_install' "$PKG_FILE")"
+                [ -n "$pre_cmd" ] && [ "$pre_cmd" != "null" ] && "${ELEV[@]}" "$BASH_BIN" -c "$pre_cmd"
                 if [ -n "$version" ]; then
                     "${ELEV[@]}" "$APT_GET" install -y "${name}=${version}"
                 else
@@ -198,9 +201,9 @@ install_one() {
             ;;
         go)
             if [ -z "$version" ] && check_installed "$name" go; then
-                echo "anglerfi: $name already installed (go)"
+                echo "anglerfi.sh: $name already installed (go)"
             else
-                [ -n "$GO" ] || { echo "anglerfi: go not found, run --setup first" >&2; exit 1; }
+                [ -n "$GO" ] || { echo "anglerfi.sh: go not found, run --setup first" >&2; exit 1; }
                 local gopkg
                 gopkg="$("$JQ" -r --arg n "$name" '.go[] | select(.name==$n) | .package' "$PKG_FILE")"
                 [ -n "$version" ] && gopkg="${gopkg%@*}@${version}"
@@ -210,9 +213,9 @@ install_one() {
             ;;
         pipx)
             if [ -z "$version" ] && check_installed "$name" pipx; then
-                echo "anglerfi: $name already installed (pipx)"
+                echo "anglerfi.sh: $name already installed (pipx)"
             else
-                [ -n "$PIPX" ] || { echo "anglerfi: pipx not found, run --setup first" >&2; exit 1; }
+                [ -n "$PIPX" ] || { echo "anglerfi.sh: pipx not found, run --setup first" >&2; exit 1; }
                 local pipxpkg
                 pipxpkg="$("$JQ" -r --arg n "$name" '.pipx[] | select(.name==$n) | .package' "$PKG_FILE")"
                 if [ -n "$version" ]; then
@@ -225,9 +228,9 @@ install_one() {
             ;;
         git)
             if [ -z "$version" ] && check_installed "$name" git; then
-                echo "anglerfi: $name already installed (git)"
+                echo "anglerfi.sh: $name already installed (git)"
             else
-                [ -n "$GIT" ] || { echo "anglerfi: git not found, run --setup first" >&2; exit 1; }
+                [ -n "$GIT" ] || { echo "anglerfi.sh: git not found, run --setup first" >&2; exit 1; }
                 need_privilege_from_catalog
                 local repo ref post_clone target_dir
                 repo="$("$JQ" -r --arg n "$name" '.git[] | select(.name==$n) | .repo' "$PKG_FILE")"
@@ -247,11 +250,11 @@ install_one() {
             ;;
         manual)
             if [ -n "$version" ]; then
-                echo "anglerfi: '$name' is a manual/hash-pinned install, -v/--version isn't supported - edit package.json if you need a different release" >&2
+                echo "anglerfi.sh: '$name' is a manual/hash-pinned install, -v/--version isn't supported - edit package.json if you need a different release" >&2
                 exit 1
             fi
             if check_installed "$name" manual; then
-                echo "anglerfi: $name already installed (manual)"
+                echo "anglerfi.sh: $name already installed (manual)"
             else
                 need_privilege_from_catalog
                 local install_cmd post_cmd artifact expected_hash actual_hash
@@ -266,7 +269,7 @@ install_one() {
                     actual_hash="$("$SHA256SUM" "$artifact" | cut -d' ' -f1)"
                     if [ "$actual_hash" != "$expected_hash" ]; then
                         "${ELEV[@]}" rm -f "$artifact"
-                        echo "anglerfi: hash mismatch for '$name' (expected $expected_hash, got $actual_hash), aborting" >&2
+                        echo "anglerfi.sh: hash mismatch for '$name' (expected $expected_hash, got $actual_hash), aborting" >&2
                         exit 1
                     fi
                 fi
@@ -276,7 +279,7 @@ install_one() {
             fi
             ;;
         none)
-            echo "anglerfi: unknown package '$name'" >&2
+            echo "anglerfi.sh: unknown package '$name'" >&2
             exit 1
             ;;
     esac
@@ -299,7 +302,7 @@ remove_one() {
             rm -f "$gobin"
             ;;
         pipx)
-            [ -n "$PIPX" ] || { echo "anglerfi: pipx not found" >&2; exit 1; }
+            [ -n "$PIPX" ] || { echo "anglerfi.sh: pipx not found" >&2; exit 1; }
             "$PIPX" uninstall "$name"
             ;;
         git)
@@ -320,13 +323,13 @@ remove_one() {
             if [ -n "$remove_cmd" ] && [ "$remove_cmd" != "null" ]; then
                 "${ELEV[@]}" "$BASH_BIN" -c "$remove_cmd"
             else
-                echo "anglerfi: no 'remove' command defined for '$name', falling back to /opt cleanup" >&2
+                echo "anglerfi.sh: no 'remove' command defined for '$name', falling back to /opt cleanup" >&2
                 "${ELEV[@]}" rm -rf "/opt/$name"
                 "${ELEV[@]}" rm -f "/usr/local/bin/$name"
             fi
             ;;
         none)
-            echo "anglerfi: unknown package '$name'" >&2
+            echo "anglerfi.sh: unknown package '$name'" >&2
             exit 1
             ;;
     esac
@@ -347,7 +350,7 @@ resolve_targets() {
 cmd_install() {
     local target="$1" version="${2:-}"
     if [ -n "$version" ] && [ -n "$(meta_members "$target")" ]; then
-        echo "anglerfi: -v/--version only works installing a single package, not meta group '$target'" >&2
+        echo "anglerfi.sh: -v/--version only works installing a single package, not meta group '$target'" >&2
         exit 1
     fi
     resolve_targets "$target" | while read -r pkg; do
@@ -383,7 +386,7 @@ cmd_firewall() {
     case "$1" in
         desktop|server) : ;;
         *)
-            echo "anglerfi: --firewall requires 'desktop' or 'server'" >&2
+            echo "anglerfi.sh: --firewall requires 'desktop' or 'server'" >&2
             exit 1
             ;;
     esac
@@ -443,16 +446,16 @@ main() {
 
     case "$1" in
         -i|--install)
-            [ -n "${2:-}" ] || { echo "anglerfi: --install requires an argument" >&2; exit 1; }
+            [ -n "${2:-}" ] || { echo "anglerfi.sh: --install requires an argument" >&2; exit 1; }
             local install_version=""
             if [ "${3:-}" = "-v" ] || [ "${3:-}" = "--version" ]; then
-                [ -n "${4:-}" ] || { echo "anglerfi: -v/--version requires an argument" >&2; exit 1; }
+                [ -n "${4:-}" ] || { echo "anglerfi.sh: -v/--version requires an argument" >&2; exit 1; }
                 install_version="$4"
             fi
             cmd_install "$2" "$install_version"
             ;;
         -r|--remove)
-            [ -n "${2:-}" ] || { echo "anglerfi: --remove requires an argument" >&2; exit 1; }
+            [ -n "${2:-}" ] || { echo "anglerfi.sh: --remove requires an argument" >&2; exit 1; }
             cmd_remove "$2"
             ;;
         -l|--list)
@@ -462,7 +465,7 @@ main() {
             esac
             ;;
         --firewall)
-            [ -n "${2:-}" ] || { echo "anglerfi: --firewall requires 'desktop' or 'server'" >&2; exit 1; }
+            [ -n "${2:-}" ] || { echo "anglerfi.sh: --firewall requires 'desktop' or 'server'" >&2; exit 1; }
             cmd_firewall "$2"
             ;;
         -s|--setup)
@@ -472,7 +475,7 @@ main() {
             usage
             ;;
         *)
-            echo "anglerfi: unknown option '$1'" >&2
+            echo "anglerfi.sh: unknown option '$1'" >&2
             usage
             exit 1
             ;;

@@ -3,7 +3,9 @@
         "web": ["nmap", "nuclei", "httpx", "ffuf", "sqlmap", "gobuster", "wpscan", "caido", "feroxbuster"],
         "mobile": ["jadx", "adb", "apktool", "scrcpy", "android-studio", "uber-apk-signer", "apkeditor", "reflutter", "frida-tools", "pidcat", "hermes-dec", "palera1n"],
         "infra": ["nmap", "subfinder", "masscan", "amass", "netexec", "smbmap", "searchsploit", "python3-impacket", "hashcat", "john", "hydra"],
-        "references": ["seclists", "payloadsallthethings", "internalallthethings", "hardwareallthethings", "mastg", "wstg", "gtfobins", "lolbas"]
+        "references": ["seclists", "payloadsallthethings", "internalallthethings", "hardwareallthethings", "mastg", "wstg", "gtfobins", "lolbas"],
+        "osint": ["sherlock", "maigret", "holehe", "theharvester", "libimage-exiftool-perl", "gau", "waybackurls"],
+        "dev": ["clang", "gcc", "neovim", "code"]
     },
     "apt": [
         {"name": "nmap", "version": "latest", "check": "command -v nmap"},
@@ -19,7 +21,17 @@
         {"name": "scrcpy", "version": "latest", "check": "command -v scrcpy"},
         {"name": "hashcat", "version": "latest", "check": "command -v hashcat"},
         {"name": "john", "version": "latest", "check": "command -v john"},
-        {"name": "hydra", "version": "latest", "check": "command -v hydra"}
+        {"name": "hydra", "version": "latest", "check": "command -v hydra"},
+        {"name": "libimage-exiftool-perl", "version": "latest", "check": "command -v exiftool"},
+        {"name": "clang", "version": "latest", "check": "command -v clang"},
+        {"name": "gcc", "version": "latest", "check": "command -v gcc"},
+        {"name": "neovim", "version": "latest", "check": "command -v nvim"},
+        {
+            "name": "code",
+            "version": "latest",
+            "check": "command -v code",
+            "pre_install": "wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg && printf 'Types: deb\\nURIs: https://packages.microsoft.com/repos/code\\nSuites: stable\\nComponents: main\\nArchitectures: amd64,arm64,armhf\\nSigned-By: /usr/share/keyrings/microsoft.gpg\\n' > /etc/apt/sources.list.d/vscode.sources && apt-get update"
+        }
     ],
     "go": [
         {"name": "nuclei", "package": "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest", "check": "command -v nuclei"},
@@ -27,12 +39,18 @@
         {"name": "ffuf", "package": "github.com/ffuf/ffuf/v2@latest", "check": "command -v ffuf"},
         {"name": "subfinder", "package": "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest", "check": "command -v subfinder"},
         {"name": "amass", "package": "github.com/owasp-amass/amass/v4/...@master", "check": "command -v amass"},
-        {"name": "netexec", "package": "github.com/Pennyw0rth/NetExec@latest", "check": "command -v netexec"}
+        {"name": "netexec", "package": "github.com/Pennyw0rth/NetExec@latest", "check": "command -v netexec"},
+        {"name": "gau", "package": "github.com/lc/gau/v2/cmd/gau@latest", "check": "command -v gau"},
+        {"name": "waybackurls", "package": "github.com/tomnomnom/waybackurls@latest", "check": "command -v waybackurls"}
     ],
     "pipx": [
         {"name": "reflutter", "package": "reflutter==0.8.6", "check": "command -v reflutter"},
         {"name": "frida-tools", "package": "frida-tools==14.10.4", "check": "command -v frida"},
-        {"name": "hermes-dec", "package": "hermes-dec", "check": "command -v hbc-disassembler"}
+        {"name": "hermes-dec", "package": "hermes-dec", "check": "command -v hbc-disassembler"},
+        {"name": "sherlock", "package": "sherlock-project", "check": "command -v sherlock"},
+        {"name": "maigret", "package": "maigret", "check": "command -v maigret"},
+        {"name": "holehe", "package": "holehe", "check": "command -v holehe"},
+        {"name": "theharvester", "package": "git+https://github.com/laramies/theHarvester.git", "check": "command -v theHarvester"}
     ],
     "manual": [
         {
