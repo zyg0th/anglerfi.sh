@@ -37,13 +37,16 @@ ELEV=()
 if [ "$(id -u)" -ne 0 ] && [ -n "$SUDO_BIN" ]; then
     ELEV=("$SUDO_BIN")
 fi
+SUDO_KEEPALIVE_PID=""
+APT_UPDATED=0
 
 # If the whole script itself was launched via `sudo ...` (SUDO_USER set),
-# HOME is root's, which would send `go install` into /root/go instead of
-# the real user's GOPATH. Drop back to the invoking user for go calls.
-GO_AS_USER=()
+# HOME is root's, which would send `go install`/`pipx install` into
+# /root/go, /root/.local/... instead of the real user's own dirs. Drop
+# back to the invoking user for go and pipx calls.
+AS_USER=()
 if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_BIN" ]; then
-    GO_AS_USER=("$SUDO_BIN" -u "$SUDO_USER" -H)
+    AS_USER=("$SUDO_BIN" -u "$SUDO_USER" -H)
 fi
 
 # Canonicalize through symlinks (e.g. the `af` alias) - `stat` without -L
@@ -122,6 +125,57 @@ need_privilege_from_catalog() {
     verify_root_owned "$PKG_FILE"
 }
 
+# apt-get update is expensive (network round trip) and every run of this
+# script is a fresh process, so a plain "once per run" flag would still
+# re-update every single invocation. Instead check how stale the actual
+# apt cache is - apt touches /var/lib/apt/lists on every successful update
+# (by us, cron, unattended-upgrades, whatever), so its mtime is the real
+# source of truth, not something we need our own state file to track.
+APT_UPDATE_MAX_AGE=86400
+apt_cache_is_stale() {
+    local stamp now
+    stamp="$("$STAT" -c %Y /var/lib/apt/lists 2>/dev/null)" || return 0
+    now="$(date +%s)"
+    [ $(( now - stamp )) -ge "$APT_UPDATE_MAX_AGE" ]
+}
+
+kind_needs_privilege() {
+    case "$1" in
+        apt|git|manual) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Scans a newline-separated package list and, if any member needs a
+# privileged (apt/git/manual) install or removal, authenticates sudo once
+# up front and keeps its timestamp cache alive in the background for the
+# rest of the run - so a long batch doesn't stall on a re-prompt for
+# whoever isn't sitting at the keyboard anymore. No-op if we're already
+# root (ELEV is empty, so nothing downstream calls sudo at all).
+prime_sudo_if_needed() {
+    local pkg_list="$1" pkg kind needed=0
+    [ "${#ELEV[@]}" -eq 0 ] && return 0
+    while IFS= read -r pkg; do
+        [ -n "$pkg" ] || continue
+        kind="$(find_kind "$pkg")"
+        if kind_needs_privilege "$kind"; then
+            needed=1
+            break
+        fi
+    done <<< "$pkg_list"
+    [ "$needed" -eq 1 ] || return 0
+
+    "${ELEV[@]}" -v
+    (
+        while kill -0 "$$" 2>/dev/null; do
+            sleep 60
+            "${ELEV[@]}" -n true 2>/dev/null
+        done
+    ) &
+    SUDO_KEEPALIVE_PID=$!
+    trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null' EXIT
+}
+
 need_jq() {
     [ -n "$JQ" ] || { echo "anglerfi.sh: jq required, run --setup or apt install jq" >&2; exit 1; }
 }
@@ -180,8 +234,11 @@ check_installed() {
     fi
     if [ "$kind" = go ]; then
         local gobin
-        gobin="$("${GO_AS_USER[@]}" "$GO" env GOPATH 2>/dev/null)/bin/$name"
+        gobin="$("${AS_USER[@]}" "$GO" env GOPATH 2>/dev/null)/bin/$name"
         [ -x "$gobin" ] && return 0
+    fi
+    if [ "$kind" = pipx ] && [ "${#AS_USER[@]}" -gt 0 ]; then
+        "${AS_USER[@]}" "$BASH_BIN" -c "$chk" >/dev/null 2>&1 && return 0
     fi
     return 1
 }
@@ -199,7 +256,13 @@ install_one() {
                 need_privilege_from_catalog
                 local pre_cmd
                 pre_cmd="$("$JQ" -r --arg n "$name" '.apt[] | select(.name==$n) | .pre_install' "$PKG_FILE")"
-                [ -n "$pre_cmd" ] && [ "$pre_cmd" != "null" ] && "${ELEV[@]}" "$BASH_BIN" -c "$pre_cmd"
+                if [ -n "$pre_cmd" ] && [ "$pre_cmd" != "null" ]; then
+                    "${ELEV[@]}" "$BASH_BIN" -c "$pre_cmd"
+                    APT_UPDATED=1
+                elif [ "$APT_UPDATED" -eq 0 ] && apt_cache_is_stale; then
+                    "${ELEV[@]}" "$APT_GET" update
+                    APT_UPDATED=1
+                fi
                 if [ -n "$version" ]; then
                     "${ELEV[@]}" "$APT_GET" install -y "${name}=${version}"
                 else
@@ -216,7 +279,7 @@ install_one() {
                 local gopkg
                 gopkg="$("$JQ" -r --arg n "$name" '.go[] | select(.name==$n) | .package' "$PKG_FILE")"
                 [ -n "$version" ] && gopkg="${gopkg%@*}@${version}"
-                "${GO_AS_USER[@]}" "$GO" install "$gopkg"
+                "${AS_USER[@]}" "$GO" install "$gopkg"
                 echo "$name" >> "$STATE_FILE"
             fi
             ;;
@@ -228,9 +291,9 @@ install_one() {
                 local pipxpkg
                 pipxpkg="$("$JQ" -r --arg n "$name" '.pipx[] | select(.name==$n) | .package' "$PKG_FILE")"
                 if [ -n "$version" ]; then
-                    "$PIPX" install --force "${pipxpkg%%==*}==${version}"
+                    "${AS_USER[@]}" "$PIPX" install --force "${pipxpkg%%==*}==${version}"
                 else
-                    "$PIPX" install "$pipxpkg"
+                    "${AS_USER[@]}" "$PIPX" install "$pipxpkg"
                 fi
                 echo "$name" >> "$STATE_FILE"
             fi
@@ -306,13 +369,17 @@ remove_one() {
             ;;
         go)
             local gobin
-            gobin="$("${GO_AS_USER[@]}" "$GO" env GOPATH 2>/dev/null)/bin/$name"
-            echo "PATH: $gobin"
-            rm -f "$gobin"
+            gobin="$("${AS_USER[@]}" "$GO" env GOPATH 2>/dev/null)/bin/$name"
+            if [ -e "$gobin" ]; then
+                rm -f "$gobin"
+                echo "anglerfi.sh: $name removed (go)"
+            else
+                echo "anglerfi.sh: $name not installed (go), nothing to remove"
+            fi
             ;;
         pipx)
             [ -n "$PIPX" ] || { echo "anglerfi.sh: pipx not found" >&2; exit 1; }
-            "$PIPX" uninstall "$name"
+            "${AS_USER[@]}" "$PIPX" uninstall "$name"
             ;;
         git)
             need_privilege_from_catalog
@@ -394,16 +461,39 @@ cmd_install() {
         echo "anglerfi.sh: -v/--version only works when exactly one package is being installed (got $count for '$target')" >&2
         exit 1
     fi
-    printf '%s\n' "$resolved" | while read -r pkg; do
-        [ -n "$pkg" ] && install_one "$pkg" "$version"
-    done
+    prime_sudo_if_needed "$resolved"
+    local pkg failed=()
+    while IFS= read -r pkg; do
+        [ -n "$pkg" ] || continue
+        # Run each package in its own subshell so one failure - however it
+        # fails, exit or return - doesn't set -e the whole batch out from
+        # under the rest of the meta group (e.g. `-i web` shouldn't skip
+        # every package alphabetically after the one that broke).
+        if ! ( install_one "$pkg" "$version" ); then
+            failed+=("$pkg")
+        fi
+    done <<< "$resolved"
+    if [ "${#failed[@]}" -gt 0 ]; then
+        echo "anglerfi.sh: failed to install: ${failed[*]}" >&2
+        exit 1
+    fi
 }
 
 cmd_remove() {
-    local target="$1"
-    resolve_targets "$target" | while read -r pkg; do
-        [ -n "$pkg" ] && remove_one "$pkg"
-    done
+    local target="$1" resolved
+    resolved="$(resolve_targets "$target")"
+    prime_sudo_if_needed "$resolved"
+    local pkg failed=()
+    while IFS= read -r pkg; do
+        [ -n "$pkg" ] || continue
+        if ! ( remove_one "$pkg" ); then
+            failed+=("$pkg")
+        fi
+    done <<< "$resolved"
+    if [ "${#failed[@]}" -gt 0 ]; then
+        echo "anglerfi.sh: failed to remove: ${failed[*]}" >&2
+        exit 1
+    fi
 }
 
 cmd_list() {
