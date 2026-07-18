@@ -2,7 +2,7 @@
     "meta": {
         "web": ["nmap", "nuclei", "httpx", "ffuf", "sqlmap", "gobuster", "wpscan", "caido", "feroxbuster"],
         "mobile": ["jadx", "adb", "apktool", "scrcpy", "android-studio", "uber-apk-signer", "apkeditor", "reflutter", "frida-tools", "pidcat", "hermes-dec", "palera1n"],
-        "infra": ["nmap", "subfinder", "masscan", "amass", "netexec", "smbmap", "searchsploit", "python3-impacket", "hashcat", "john", "hydra"],
+        "infra": ["nmap", "subfinder", "masscan", "amass", "netexec", "smbmap", "searchsploit", "python3-impacket", "hashcat", "john", "hydra", "responder", "netcat-openbsd", "socat", "sliver-client", "sliver-server", "metasploit-framework"],
         "references": ["seclists", "payloadsallthethings", "internalallthethings", "hardwareallthethings", "mastg", "wstg", "gtfobins", "lolbas"],
         "osint": ["sherlock", "maigret", "holehe", "theharvester", "libimage-exiftool-perl", "gau", "waybackurls"],
         "dev": ["clang", "gcc", "neovim", "code"]
@@ -31,7 +31,9 @@
             "version": "latest",
             "check": "command -v code",
             "pre_install": "wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg && printf 'Types: deb\\nURIs: https://packages.microsoft.com/repos/code\\nSuites: stable\\nComponents: main\\nArchitectures: amd64,arm64,armhf\\nSigned-By: /usr/share/keyrings/microsoft.gpg\\n' > /etc/apt/sources.list.d/vscode.sources && apt-get update"
-        }
+        },
+        {"name": "netcat-openbsd", "version": "latest", "check": "command -v nc"},
+        {"name": "socat", "version": "latest", "check": "command -v socat"}
     ],
     "go": [
         {"name": "nuclei", "package": "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest", "check": "command -v nuclei"},
@@ -118,6 +120,33 @@
             "check": "test -f /usr/share/applications/lolbas.desktop",
             "install": "wget -q -O /usr/share/pixmaps/lolbas.png https://lolbas-project.github.io/assets/favicon.png && printf '[Desktop Entry]\\nName=LOLBAS\\nComment=Living Off The Land Binaries and Scripts\\nExec=xdg-open https://lolbas-project.github.io/\\nIcon=/usr/share/pixmaps/lolbas.png\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/lolbas.desktop",
             "remove": "rm -f /usr/share/applications/lolbas.desktop /usr/share/pixmaps/lolbas.png"
+        },
+        {
+            "name": "sliver-client",
+            "check": "command -v sliver-client",
+            "install": "wget -O /tmp/sliver-client https://github.com/BishopFox/sliver/releases/download/v1.7.3/sliver-client_linux-amd64",
+            "artifact": "/tmp/sliver-client",
+            "hash": "b0e328a131e4d679e9b268552db99ca2d46051b9205a67f9b7f7c1628983daae",
+            "post_install": "install -m 755 /tmp/sliver-client /usr/local/bin/sliver-client && rm -f /tmp/sliver-client",
+            "remove": "rm -f /usr/local/bin/sliver-client"
+        },
+        {
+            "name": "sliver-server",
+            "check": "command -v sliver-server",
+            "install": "wget -O /tmp/sliver-server https://github.com/BishopFox/sliver/releases/download/v1.7.3/sliver-server_linux-amd64",
+            "artifact": "/tmp/sliver-server",
+            "hash": "e3216ecd12f6e7e97cb4588bb6d85c70eca3bdfad8b0818ffd53ccb2e357ccc8",
+            "post_install": "install -m 755 /tmp/sliver-server /usr/local/bin/sliver-server && rm -f /tmp/sliver-server",
+            "remove": "rm -f /usr/local/bin/sliver-server"
+        },
+        {
+            "name": "metasploit-framework",
+            "check": "command -v msfconsole",
+            "install": "wget -O /tmp/msfinstall https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb",
+            "artifact": "/tmp/msfinstall",
+            "hash": "d12fea4d1339ebecb09d8cc36920d9f5e5e7e9fffbe092b1e1cd09255cc16825",
+            "post_install": "chmod +x /tmp/msfinstall && /tmp/msfinstall && rm -f /tmp/msfinstall",
+            "remove": "apt-get remove -y metasploit-framework"
         }
     ],
     "git": [
@@ -172,6 +201,13 @@
             "check": "test -d /opt/wstg",
             "repo": "https://github.com/OWASP/wstg.git",
             "remove": "rm -rf /opt/wstg"
+        },
+        {
+            "name": "responder",
+            "check": "command -v responder",
+            "repo": "https://github.com/lgandx/Responder.git",
+            "post_clone": "apt-get install -y python3-pip python3-netifaces && chmod +x /opt/responder/Responder.py && printf '#!/bin/sh\\nexec python3 /opt/responder/Responder.py \"$@\"\\n' > /usr/local/bin/responder && chmod +x /usr/local/bin/responder",
+            "remove": "rm -rf /opt/responder && rm -f /usr/local/bin/responder"
         }
     ]
 }
