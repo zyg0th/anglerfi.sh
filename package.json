@@ -1,19 +1,25 @@
 {
     "meta": {
-        "web": ["nmap", "nuclei", "httpx", "ffuf", "sqlmap", "gobuster", "wpscan", "caido"],
+        "web": ["nmap", "nuclei", "httpx", "ffuf", "sqlmap", "gobuster", "wpscan", "caido", "feroxbuster"],
         "mobile": ["jadx", "adb", "apktool", "scrcpy", "android-studio", "uber-apk-signer", "apkeditor", "reflutter", "frida-tools", "pidcat", "hermes-dec", "palera1n"],
-        "infra": ["nmap", "subfinder", "masscan", "amass", "netexec"]
+        "infra": ["nmap", "subfinder", "masscan", "amass", "netexec", "smbmap", "searchsploit", "python3-impacket", "hashcat", "john", "hydra"],
+        "references": ["seclists", "payloadsallthethings", "internalallthethings", "hardwareallthethings", "mastg", "wstg", "gtfobins", "lolbas"]
     },
     "apt": [
         {"name": "nmap", "version": "latest", "check": "command -v nmap"},
         {"name": "sqlmap", "version": "latest", "check": "command -v sqlmap"},
         {"name": "gobuster", "version": "latest", "check": "command -v gobuster"},
         {"name": "masscan", "version": "latest", "check": "command -v masscan"},
+        {"name": "smbmap", "version": "latest", "check": "command -v smbmap"},
+        {"name": "python3-impacket", "version": "latest", "check": "command -v impacket-secretsdump"},
         {"name": "wpscan", "version": "latest", "check": "command -v wpscan"},
         {"name": "jadx", "version": "latest", "check": "command -v jadx"},
         {"name": "apktool", "version": "latest", "check": "command -v apktool"},
         {"name": "adb", "version": "latest", "check": "command -v adb"},
-        {"name": "scrcpy", "version": "latest", "check": "command -v scrcpy"}
+        {"name": "scrcpy", "version": "latest", "check": "command -v scrcpy"},
+        {"name": "hashcat", "version": "latest", "check": "command -v hashcat"},
+        {"name": "john", "version": "latest", "check": "command -v john"},
+        {"name": "hydra", "version": "latest", "check": "command -v hydra"}
     ],
     "go": [
         {"name": "nuclei", "package": "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest", "check": "command -v nuclei"},
@@ -35,7 +41,7 @@
             "install": "wget -O /tmp/caido.tar.gz https://caido.download/releases/v0.57.1/caido-desktop-v0.57.1-linux-x86_64.tar.gz",
             "artifact": "/tmp/caido.tar.gz",
             "hash": "ddddeaf172f618cd09b89e0f240aa00dd07627c708f237701a259a671701b1e9",
-            "post_install": "mkdir -p /opt/caido && tar -xzf /tmp/caido.tar.gz -C /opt/caido --strip-components=1 && rm -f /tmp/caido.tar.gz && ln -sf /opt/caido/caido /usr/local/bin/caido && printf '[Desktop Entry]\\nName=Caido\\nComment=Web security auditing toolkit\\nExec=/opt/caido/caido %%U\\nIcon=/opt/caido/icon.png\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/caido.desktop",
+            "post_install": "mkdir -p /opt/caido && tar -xzf /tmp/caido.tar.gz -C /opt/caido --strip-components=1 && rm -f /tmp/caido.tar.gz && ln -sf /opt/caido/caido /usr/local/bin/caido && wget -q -O /opt/caido/icon.ico https://www.caido.io/favicon.ico && printf '[Desktop Entry]\\nName=Caido\\nComment=Web security auditing toolkit\\nExec=/opt/caido/caido %%U\\nIcon=/opt/caido/icon.ico\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/caido.desktop",
             "remove": "rm -rf /opt/caido && rm -f /usr/local/bin/caido /usr/share/applications/caido.desktop"
         },
         {
@@ -66,15 +72,6 @@
             "remove": "rm -rf /opt/apkeditor && rm -f /usr/local/bin/apkeditor"
         },
         {
-            "name": "pidcat",
-            "check": "command -v pidcat",
-            "install": "wget -O /tmp/pidcat.zip https://github.com/JakeWharton/pidcat/archive/refs/tags/2.1.0.zip",
-            "artifact": "/tmp/pidcat.zip",
-            "hash": "a254b585f48037bc015c2f754b514fd3feb80bad910dae74d90a93bcc6d2c929",
-            "post_install": "mkdir -p /opt/pidcat && unzip -o -q /tmp/pidcat.zip -d /tmp/pidcat_extract && cp -r /tmp/pidcat_extract/pidcat-2.1.0/. /opt/pidcat/ && rm -rf /tmp/pidcat_extract /tmp/pidcat.zip && chmod +x /opt/pidcat/pidcat.py && printf '#!/bin/sh\\nexec python3 /opt/pidcat/pidcat.py \"$@\"\\n' > /usr/local/bin/pidcat && chmod +x /usr/local/bin/pidcat",
-            "remove": "rm -rf /opt/pidcat && rm -f /usr/local/bin/pidcat"
-        },
-        {
             "name": "palera1n",
             "check": "command -v palera1n",
             "install": "wget -O /tmp/palera1n.deb https://github.com/palera1n/palera1n/releases/download/v2.3/palera1n_amd64.deb",
@@ -82,6 +79,81 @@
             "hash": "7c34582989d8a008944976d57767bc0886bc74ebc346c95922072f36dfb77143",
             "post_install": "apt-get install -y /tmp/palera1n.deb && rm -f /tmp/palera1n.deb",
             "remove": "apt-get remove -y palera1n"
+        },
+        {
+            "name": "feroxbuster",
+            "check": "command -v feroxbuster",
+            "install": "wget -O /tmp/feroxbuster.tar.gz https://github.com/epi052/feroxbuster/releases/download/v2.13.1/x86_64-linux-feroxbuster.tar.gz",
+            "artifact": "/tmp/feroxbuster.tar.gz",
+            "hash": "7985c00e6803b0f25d5e9139f7472279f3f4d891429627a5cedc629e53992d80",
+            "post_install": "mkdir -p /opt/feroxbuster && tar -xzf /tmp/feroxbuster.tar.gz -C /opt/feroxbuster && rm -f /tmp/feroxbuster.tar.gz && chmod +x /opt/feroxbuster/feroxbuster && ln -sf /opt/feroxbuster/feroxbuster /usr/local/bin/feroxbuster",
+            "remove": "rm -rf /opt/feroxbuster && rm -f /usr/local/bin/feroxbuster"
+        },
+        {
+            "name": "gtfobins",
+            "check": "test -f /usr/share/applications/gtfobins.desktop",
+            "install": "wget -q -O /usr/share/pixmaps/gtfobins.png https://gtfobins.org/assets/logo.png && printf '[Desktop Entry]\\nName=GTFOBins\\nComment=Unix binaries local privesc/bypass cheatsheet\\nExec=xdg-open https://gtfobins.org/\\nIcon=/usr/share/pixmaps/gtfobins.png\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/gtfobins.desktop",
+            "remove": "rm -f /usr/share/applications/gtfobins.desktop /usr/share/pixmaps/gtfobins.png"
+        },
+        {
+            "name": "lolbas",
+            "check": "test -f /usr/share/applications/lolbas.desktop",
+            "install": "wget -q -O /usr/share/pixmaps/lolbas.png https://lolbas-project.github.io/assets/favicon.png && printf '[Desktop Entry]\\nName=LOLBAS\\nComment=Living Off The Land Binaries and Scripts\\nExec=xdg-open https://lolbas-project.github.io/\\nIcon=/usr/share/pixmaps/lolbas.png\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/lolbas.desktop",
+            "remove": "rm -f /usr/share/applications/lolbas.desktop /usr/share/pixmaps/lolbas.png"
+        }
+    ],
+    "git": [
+        {
+            "name": "pidcat",
+            "check": "command -v pidcat",
+            "repo": "https://github.com/JakeWharton/pidcat.git",
+            "ref": "2.1.0",
+            "post_clone": "chmod +x /opt/pidcat/pidcat.py && printf '#!/bin/sh\\nexec python3 /opt/pidcat/pidcat.py \"$@\"\\n' > /usr/local/bin/pidcat && chmod +x /usr/local/bin/pidcat",
+            "remove": "rm -rf /opt/pidcat && rm -f /usr/local/bin/pidcat"
+        },
+        {
+            "name": "searchsploit",
+            "check": "command -v searchsploit",
+            "repo": "https://gitlab.com/exploit-database/exploitdb.git",
+            "ref": "main",
+            "post_clone": "chmod +x /opt/searchsploit/searchsploit && ln -sf /opt/searchsploit/searchsploit /usr/local/bin/searchsploit",
+            "remove": "rm -rf /opt/searchsploit && rm -f /usr/local/bin/searchsploit"
+        },
+        {
+            "name": "seclists",
+            "check": "test -d /opt/seclists",
+            "repo": "https://github.com/danielmiessler/SecLists.git",
+            "remove": "rm -rf /opt/seclists"
+        },
+        {
+            "name": "payloadsallthethings",
+            "check": "test -d /opt/payloadsallthethings",
+            "repo": "https://github.com/swisskyrepo/PayloadsAllTheThings.git",
+            "remove": "rm -rf /opt/payloadsallthethings"
+        },
+        {
+            "name": "internalallthethings",
+            "check": "test -d /opt/internalallthethings",
+            "repo": "https://github.com/swisskyrepo/InternalAllTheThings.git",
+            "remove": "rm -rf /opt/internalallthethings"
+        },
+        {
+            "name": "hardwareallthethings",
+            "check": "test -d /opt/hardwareallthethings",
+            "repo": "https://github.com/swisskyrepo/HardwareAllTheThings.git",
+            "remove": "rm -rf /opt/hardwareallthethings"
+        },
+        {
+            "name": "mastg",
+            "check": "test -d /opt/mastg",
+            "repo": "https://github.com/OWASP/mastg.git",
+            "remove": "rm -rf /opt/mastg"
+        },
+        {
+            "name": "wstg",
+            "check": "test -d /opt/wstg",
+            "repo": "https://github.com/OWASP/wstg.git",
+            "remove": "rm -rf /opt/wstg"
         }
     ]
 }

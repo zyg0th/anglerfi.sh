@@ -11,7 +11,7 @@ Built for pentesters running Debian or Ubuntu who want a clean, reproducible way
 ## What it is
 
 - **`anglerfi.sh`** — the CLI. Parses commands, dispatches to `apt`, `go install`, `pipx`, or a manual tarball/jar/deb installer, and can lock down the firewall.
-- **`package.json`** — the tool catalog. Editable list of what's installable and how, grouped into `meta` bundles (`web`, `mobile`, `infra`) you can install in one shot.
+- **`package.json`** — the tool catalog. Editable list of what's installable and how, grouped into `meta` bundles (`web`, `mobile`, `infra`, `references`) you can install in one shot.
 
 ## Install
 
@@ -58,7 +58,7 @@ anglerfi.sh -i, --install <package|meta> [-v|--version <ver>]
 anglerfi.sh -r, --remove  <package|meta>   remove a package or a full meta group
 anglerfi.sh -l, --list [-a|--all]          list installed packages (--all: include missing ones too)
 anglerfi.sh --firewall <desktop|server>    configure iptables, persisted via iptables-persistent
-anglerfi.sh -s, --setup                    install go/pipx/cargo toolchains
+anglerfi.sh -s, --setup                    install go/pipx/git/cargo toolchains
 anglerfi.sh -h, --help                     show this help
 ```
 
@@ -83,17 +83,22 @@ You don't need to prefix `sudo` yourself — the script only elevates the specif
 
 ## The catalog (`package.json`)
 
-Five sections:
+Six sections:
 
-- **`meta`** — named bundles (`web`, `mobile`, `infra`) mapping to a list of package names. `-i web` expands and installs each member.
+- **`meta`** — named bundles (`web`, `mobile`, `infra`, `references`) mapping to a list of package names. `-i web` expands and installs each member. Wordlists/guides live in their own `references` bundle instead of being forced onto everyone installing `web`/`mobile`/`infra` — nobody should have to eat a 3.4GB SecLists clone just to get `ffuf`.
 - **`apt`** — thin wrapper around `apt-get install`. `check` decides if it's already present.
 - **`go`** — wraps `go install <module>@version`.
-- **`manual`** — for anything with no package manager: downloads a tarball/jar/deb, verifies it against a pinned `hash` (sha256), then runs `post_install` (extraction, symlinking into `/usr/local/bin`, `.desktop` file creation, or `apt-get install ./file.deb`) and has a matching `remove` command for clean teardown.
 - **`pipx`** — wraps `pipx install <spec>` for Python CLI tools that shouldn't pollute the system `pip`.
+- **`git`** — shallow-clones (`--depth 1`) a `repo` into `/opt/<name>`, optionally at a specific `ref` (tag/branch), then runs `post_clone` (symlinking, wrapper scripts). No hash pinning — trades that off for tools that are meant to track upstream (e.g. `searchsploit`'s own `-u` update path expects a real git checkout it can `git pull`). Use this instead of `manual` when the upstream project *is* the git repo (a script/source tree you'd otherwise `git clone` by hand), not when the real artifact is a separately-built release binary.
+- **`manual`** — for anything with no package manager: downloads a tarball/jar/deb, verifies it against a pinned `hash` (sha256), then runs `post_install` (extraction, symlinking into `/usr/local/bin`, `.desktop` file creation, or `apt-get install ./file.deb`) and has a matching `remove` command for clean teardown.
 
 All `manual`-kind downloads are pinned to `linux-x86_64`/`amd64` builds — no arm/aarch64 support yet.
 
-Bundled today: `nmap`, `nuclei`, `httpx`, `ffuf`, `sqlmap`, `gobuster`, `wpscan`, `caido`, `subfinder`, `masscan`, `amass`, `netexec`, `jadx`, `adb`, `apktool`, `scrcpy`, `android-studio`, `uber-apk-signer`, `apkeditor`, `reflutter`, `frida-tools`, `pidcat`, `hermes-dec`, `palera1n`.
+Bundled today: `nmap`, `nuclei`, `httpx`, `ffuf`, `sqlmap`, `gobuster`, `wpscan`, `caido`, `subfinder`, `masscan`, `amass`, `netexec`, `smbmap`, `python3-impacket`, `hashcat`, `john`, `hydra`, `jadx`, `adb`, `apktool`, `scrcpy`, `android-studio`, `uber-apk-signer`, `apkeditor`, `reflutter`, `frida-tools`, `hermes-dec`, `palera1n`, `pidcat`, `searchsploit`, `feroxbuster`, `seclists`, `payloadsallthethings`, `internalallthethings`, `hardwareallthethings`, `mastg`, `wstg`, `gtfobins`, `lolbas`.
+
+`gtfobins`/`lolbas` are `.desktop` shortcuts, not clones — they just open the live sites (`gtfobins.org`, `lolbas-project.github.io`) in your default browser via `xdg-open`. No git clone, no Ruby/Jekyll toolchain: internet access is already assumed for basically everything else in this catalog, so a local build added nothing but disk and maintenance cost.
+
+> `seclists` is a ~3.4GB clone (it's all wordlist data, no way to shrink that) — `-i seclists` will take a while and eat disk. Nothing else in the catalog is anywhere close to that size.
 
 Edit `package.json` to add your own tools or change what a meta group installs.
 

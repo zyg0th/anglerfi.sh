@@ -37,6 +37,7 @@ jobs:
           mkdir -p "$PKG_ROOT/etc/anglerfish"
 
           install -m 755 anglerfi.sh "$PKG_ROOT/usr/bin/anglerfi.sh"
+          ln -sf anglerfi.sh "$PKG_ROOT/usr/bin/af"
           install -m 644 package.json "$PKG_ROOT/etc/anglerfish/package.json"
 
           echo "/etc/anglerfish/package.json" > "$PKG_ROOT/DEBIAN/conffiles"
@@ -47,7 +48,7 @@ jobs:
           Section: admin
           Priority: optional
           Architecture: all
-          Depends: jq, wget, curl, tar, unzip, python3, iptables, iptables-persistent
+          Depends: jq, wget, curl, tar, unzip, python3, git, iptables, iptables-persistent
           Maintainer: zyg0th <core.zyg0th@gmail.com>
           Description: Unified Package Manager for Pentest Box
            Wraps apt/go/manual installs behind one CLI so multiple package

@@ -18,6 +18,7 @@ JQ="$(resolve_bin jq)"
 APT_GET="$(resolve_bin apt-get)"
 GO="$(resolve_bin go)"
 PIPX="$(resolve_bin pipx)"
+GIT="$(resolve_bin git)"
 SYSTEMCTL="$(resolve_bin systemctl)"
 IPTABLES="$(resolve_bin iptables)"
 IPTABLES_SAVE="$(resolve_bin iptables-save)"
@@ -25,6 +26,7 @@ SHA256SUM="$(resolve_bin sha256sum)"
 SED="$(resolve_bin sed)"
 BASH_BIN="$(resolve_bin bash)"
 STAT="$(resolve_bin stat)"
+READLINK="$(resolve_bin readlink)"
 
 # Only the specific commands that need root get elevated (apt-get, writes
 # under /opt, /etc, iptables, ...). Everything else - go install, jq
@@ -44,8 +46,12 @@ if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]
     GO_AS_USER=("$SUDO_BIN" -u "$SUDO_USER" -H)
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
+# Canonicalize through symlinks (e.g. the `af` alias) - `stat` without -L
+# reports a symlink's own mode (always 777, since Linux ignores symlink
+# permission bits), not the real script's, which would make
+# verify_root_owned wrongly refuse everything when invoked via a symlink.
+SCRIPT_PATH="$("$READLINK" -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 if [ -n "${ANGLERFISH_PKG:-}" ]; then
     PKG_FILE="$ANGLERFISH_PKG"
 elif [ -f /etc/anglerfish/package.json ]; then
@@ -136,7 +142,7 @@ Usage:
   anglerfi.sh -r, --remove  <package|meta>   remove a package or a full meta group
   anglerfi.sh -l, --list [-a|-all|--all]      list installed packages (--all: include missing ones too)
   anglerfi.sh --firewall <desktop|server>    configure iptables, persisted via iptables-persistent (desktop: allow 8000/8080, server: allow 22)
-  anglerfi.sh -s, --setup                    install go/pipx/cargo toolchains
+  anglerfi.sh -s, --setup                    install go/pipx/git/cargo toolchains
   anglerfi.sh -h, --help                     show this help
 EOF
 }
@@ -155,6 +161,9 @@ find_kind() {
     fi
     if "$JQ" -e --arg n "$name" '.pipx[]? | select(.name==$n)' "$PKG_FILE" >/dev/null; then
         echo pipx; return
+    fi
+    if "$JQ" -e --arg n "$name" '.git[]? | select(.name==$n)' "$PKG_FILE" >/dev/null; then
+        echo git; return
     fi
     if "$JQ" -e --arg n "$name" '.manual[] | select(.name==$n)' "$PKG_FILE" >/dev/null; then
         echo manual; return
@@ -211,6 +220,28 @@ install_one() {
                 else
                     "$PIPX" install "$pipxpkg"
                 fi
+                echo "$name" >> "$STATE_FILE"
+            fi
+            ;;
+        git)
+            if [ -z "$version" ] && check_installed "$name" git; then
+                echo "anglerfi: $name already installed (git)"
+            else
+                [ -n "$GIT" ] || { echo "anglerfi: git not found, run --setup first" >&2; exit 1; }
+                need_privilege_from_catalog
+                local repo ref post_clone target_dir
+                repo="$("$JQ" -r --arg n "$name" '.git[] | select(.name==$n) | .repo' "$PKG_FILE")"
+                ref="$("$JQ" -r --arg n "$name" '.git[] | select(.name==$n) | .ref' "$PKG_FILE")"
+                post_clone="$("$JQ" -r --arg n "$name" '.git[] | select(.name==$n) | .post_clone' "$PKG_FILE")"
+                [ -n "$version" ] && ref="$version"
+                target_dir="/opt/$name"
+                "${ELEV[@]}" rm -rf "$target_dir"
+                if [ -n "$ref" ] && [ "$ref" != "null" ]; then
+                    "${ELEV[@]}" "$GIT" clone --quiet --depth 1 --branch "$ref" "$repo" "$target_dir"
+                else
+                    "${ELEV[@]}" "$GIT" clone --quiet --depth 1 "$repo" "$target_dir"
+                fi
+                [ -n "$post_clone" ] && [ "$post_clone" != "null" ] && "${ELEV[@]}" "$BASH_BIN" -c "$post_clone"
                 echo "$name" >> "$STATE_FILE"
             fi
             ;;
@@ -271,6 +302,17 @@ remove_one() {
             [ -n "$PIPX" ] || { echo "anglerfi: pipx not found" >&2; exit 1; }
             "$PIPX" uninstall "$name"
             ;;
+        git)
+            need_privilege_from_catalog
+            local remove_cmd
+            remove_cmd="$("$JQ" -r --arg n "$name" '.git[] | select(.name==$n) | .remove' "$PKG_FILE")"
+            if [ -n "$remove_cmd" ] && [ "$remove_cmd" != "null" ]; then
+                "${ELEV[@]}" "$BASH_BIN" -c "$remove_cmd"
+            else
+                "${ELEV[@]}" rm -rf "/opt/$name"
+                "${ELEV[@]}" rm -f "/usr/local/bin/$name"
+            fi
+            ;;
         manual)
             need_privilege_from_catalog
             local remove_cmd
@@ -323,7 +365,7 @@ cmd_remove() {
 cmd_list() {
     local show_all="$1"
     local kind name status
-    for kind in apt go pipx manual; do
+    for kind in apt go pipx git manual; do
         "$JQ" -r --arg k "$kind" '.[$k][]? | .name' "$PKG_FILE" | while read -r name; do
             [ -n "$name" ] || continue
             if check_installed "$name" "$kind"; then
@@ -384,10 +426,11 @@ cmd_firewall() {
 cmd_setup() {
     need_privilege
     "${ELEV[@]}" "$APT_GET" update
-    "${ELEV[@]}" "$APT_GET" install -y jq golang-go pipx cargo
+    "${ELEV[@]}" "$APT_GET" install -y jq golang-go pipx git cargo
     JQ="$(resolve_bin jq)"
     GO="$(resolve_bin go)"
     PIPX="$(resolve_bin pipx)"
+    GIT="$(resolve_bin git)"
     "$PIPX" ensurepath || true
 }
 
