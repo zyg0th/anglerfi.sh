@@ -57,9 +57,11 @@ jobs:
           Description: Unified Package Manager for Offensive Security Box
            Wraps apt/go/manual installs behind one CLI so multiple package
            managers stop stepping on each other on an offensive security box.
-           .
-           This is a beta / development build.
           EOF
+
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            printf ' .\n This is a beta / development build.\n' >> "$PKG_ROOT/DEBIAN/control"
+          fi
 
           mkdir -p dist
           dpkg-deb --root-owner-group --build "$PKG_ROOT" "dist/anglerfish_${VERSION}_all.deb"
@@ -76,4 +78,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.deb
-          prerelease: true
+          prerelease: ${{ contains(github.ref, '-') }}

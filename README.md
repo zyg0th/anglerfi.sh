@@ -1,5 +1,7 @@
 # Anglerfish
 
+[![Build .deb](https://github.com/zyg0th/anglerfi.sh/actions/workflows/build-deb.yml/badge.svg)](https://github.com/zyg0th/anglerfi.sh/actions/workflows/build-deb.yml)
+
 **Unified Package Manager for Offensive Security Box.**
 
 Debian/Ubuntu boxes used for offensive security work end up with tools scattered across `apt`, `go install`, `pipx`, hand-built tarballs in `/opt`, and random shell scripts — each manager unaware of the others, occasionally clobbering the same binary name. Anglerfish wraps all of that behind one CLI and one editable catalog, so installing, listing, and removing your toolset is one consistent command regardless of where the tool actually comes from.
