@@ -175,7 +175,15 @@ find_kind() {
 check_installed() {
     local name="$1" kind="$2" chk
     chk="$("$JQ" -r --arg n "$name" ".$kind[] | select(.name==\$n) | .check" "$PKG_FILE")"
-    eval "$chk" >/dev/null 2>&1
+    if eval "$chk" >/dev/null 2>&1; then
+        return 0
+    fi
+    if [ "$kind" = go ]; then
+        local gobin
+        gobin="$("${GO_AS_USER[@]}" "$GO" env GOPATH 2>/dev/null)/bin/$name"
+        [ -x "$gobin" ] && return 0
+    fi
+    return 1
 }
 
 install_one() {
