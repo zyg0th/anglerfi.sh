@@ -3,7 +3,7 @@
         "web": ["nuclei", "httpx", "ffuf", "sqlmap", "gobuster", "wpscan", "zaproxy", "feroxbuster"],
         "mobile": ["jadx", "adb", "apktool", "scrcpy", "android-studio", "uber-apk-signer", "apkeditor", "reflutter", "frida-tools", "pidcat", "hermes-dec", "palera1n"],
         "infra": ["nmap", "subfinder", "masscan", "amass", "netexec", "smbmap", "searchsploit", "python3-impacket", "hashcat", "john", "hydra", "responder", "netcat-openbsd", "socat", "sliver-client", "sliver-server", "metasploit-framework", "wireshark", "tcpdump", "bettercap"],
-        "references": ["seclists", "payloadsallthethings", "internalallthethings", "hardwareallthethings", "mastg", "wstg", "gtfobins", "lolbas"],
+        "references": ["seclists", "payloadsallthethings", "internalallthethings", "hardwareallthethings", "mastg", "wstg", "gtfobins", "lolbas", "gtfoargs", "wadcoms", "mitre-attack", "owasp-cheatsheets", "hacktricks", "hacker-recipes"],
         "osint": ["sherlock", "maigret", "holehe", "theharvester", "libimage-exiftool-perl", "gau", "waybackurls"],
         "dev": ["clang", "gcc", "neovim", "code", "docker-ce", "podman", "vagrant", "virtualbox-7.2"],
         "wireless": ["aircrack-ng", "wifite", "reaver", "bluez-tools", "libnfc-bin", "mfoc"]
@@ -15,7 +15,6 @@
         {"name": "masscan", "version": "latest", "check": "command -v masscan"},
         {"name": "smbmap", "version": "latest", "check": "command -v smbmap"},
         {"name": "python3-impacket", "version": "latest", "check": "command -v impacket-secretsdump"},
-        {"name": "wpscan", "version": "latest", "check": "command -v wpscan"},
         {"name": "jadx", "version": "latest", "check": "command -v jadx"},
         {"name": "apktool", "version": "latest", "check": "command -v apktool"},
         {"name": "adb", "version": "latest", "check": "command -v adb"},
@@ -99,7 +98,7 @@
         },
         {
             "name": "uber-apk-signer",
-            "check": "command -v uber-apk-signer",
+            "check": "[ -x /usr/local/bin/uber-apk-signer ]",
             "install": "mkdir -p /opt/uber-apk-signer && wget -O /opt/uber-apk-signer/uber-apk-signer.jar https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar",
             "artifact": "/opt/uber-apk-signer/uber-apk-signer.jar",
             "hash": "e1299fd6fcf4da527dd53735b56127e8ea922a321128123b9c32d619bba1d835",
@@ -108,7 +107,7 @@
         },
         {
             "name": "apkeditor",
-            "check": "command -v apkeditor",
+            "check": "[ -x /usr/local/bin/apkeditor ]",
             "install": "mkdir -p /opt/apkeditor && wget -O /opt/apkeditor/apkeditor.jar https://github.com/REAndroid/APKEditor/releases/download/V1.4.9/APKEditor-1.4.9.jar",
             "artifact": "/opt/apkeditor/apkeditor.jar",
             "hash": "a9cd40df818845456be6d696de6110c89edf4b0a0580cb83438ed6b25a366e67",
@@ -134,6 +133,12 @@
             "remove": "rm -rf /opt/feroxbuster && rm -f /usr/local/bin/feroxbuster"
         },
         {
+            "name": "wpscan",
+            "check": "command -v wpscan",
+            "install": "apt-get update && apt-get install -y build-essential ruby-dev && gem install wpscan",
+            "remove": "command -v gem >/dev/null 2>&1 && gem uninstall wpscan --executables --force || true"
+        },
+        {
             "name": "gtfobins",
             "check": "test -f /usr/share/applications/gtfobins.desktop",
             "install": "wget -q -O /usr/share/pixmaps/gtfobins.png https://gtfobins.org/assets/logo.png && printf '[Desktop Entry]\\nName=GTFOBins\\nComment=Unix binaries local privesc/bypass cheatsheet\\nExec=xdg-open https://gtfobins.org/\\nIcon=/usr/share/pixmaps/gtfobins.png\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/gtfobins.desktop",
@@ -144,6 +149,42 @@
             "check": "test -f /usr/share/applications/lolbas.desktop",
             "install": "wget -q -O /usr/share/pixmaps/lolbas.png https://lolbas-project.github.io/assets/favicon.png && printf '[Desktop Entry]\\nName=LOLBAS\\nComment=Living Off The Land Binaries and Scripts\\nExec=xdg-open https://lolbas-project.github.io/\\nIcon=/usr/share/pixmaps/lolbas.png\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/lolbas.desktop",
             "remove": "rm -f /usr/share/applications/lolbas.desktop /usr/share/pixmaps/lolbas.png"
+        },
+        {
+            "name": "gtfoargs",
+            "check": "test -f /usr/share/applications/gtfoargs.desktop",
+            "install": "wget -q -O /usr/share/pixmaps/gtfoargs.png https://gtfoargs.github.io/favicon.ico && printf '[Desktop Entry]\\nName=GTFOArgs\\nComment=Unix binaries argument injection cheatsheet\\nExec=xdg-open https://gtfoargs.github.io/\\nIcon=/usr/share/pixmaps/gtfoargs.png\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/gtfoargs.desktop",
+            "remove": "rm -f /usr/share/applications/gtfoargs.desktop /usr/share/pixmaps/gtfoargs.png"
+        },
+        {
+            "name": "wadcoms",
+            "check": "test -f /usr/share/applications/wadcoms.desktop",
+            "install": "wget -q -O /usr/share/pixmaps/wadcoms.png https://wadcoms.github.io/assets/logo.png && printf '[Desktop Entry]\\nName=WADComs\\nComment=Windows/AD offensive commands cheatsheet\\nExec=xdg-open https://wadcoms.github.io/\\nIcon=/usr/share/pixmaps/wadcoms.png\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/wadcoms.desktop",
+            "remove": "rm -f /usr/share/applications/wadcoms.desktop /usr/share/pixmaps/wadcoms.png"
+        },
+        {
+            "name": "mitre-attack",
+            "check": "test -f /usr/share/applications/mitre-attack.desktop",
+            "install": "wget -q -O /usr/share/pixmaps/mitre-attack.ico https://attack.mitre.org/theme/favicon.ico && printf '[Desktop Entry]\\nName=MITRE ATT&CK\\nComment=Adversary tactics and techniques matrix\\nExec=xdg-open https://attack.mitre.org/\\nIcon=/usr/share/pixmaps/mitre-attack.ico\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/mitre-attack.desktop",
+            "remove": "rm -f /usr/share/applications/mitre-attack.desktop /usr/share/pixmaps/mitre-attack.ico"
+        },
+        {
+            "name": "owasp-cheatsheets",
+            "check": "test -f /usr/share/applications/owasp-cheatsheets.desktop",
+            "install": "wget -q -O /usr/share/pixmaps/owasp-cheatsheets.png https://cheatsheetseries.owasp.org/assets/WebSite_Favicon.png && printf '[Desktop Entry]\\nName=OWASP Cheat Sheet Series\\nComment=Quick-reference cheatsheets per vulnerability class\\nExec=xdg-open https://cheatsheetseries.owasp.org/\\nIcon=/usr/share/pixmaps/owasp-cheatsheets.png\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/owasp-cheatsheets.desktop",
+            "remove": "rm -f /usr/share/applications/owasp-cheatsheets.desktop /usr/share/pixmaps/owasp-cheatsheets.png"
+        },
+        {
+            "name": "hacktricks",
+            "check": "test -f /usr/share/applications/hacktricks.desktop",
+            "install": "wget -q -O /usr/share/pixmaps/hacktricks.svg https://hacktricks.wiki/en/favicon.svg && printf '[Desktop Entry]\\nName=HackTricks\\nComment=Pentesting methodology and techniques wiki\\nExec=xdg-open https://hacktricks.wiki/\\nIcon=/usr/share/pixmaps/hacktricks.svg\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/hacktricks.desktop",
+            "remove": "rm -f /usr/share/applications/hacktricks.desktop /usr/share/pixmaps/hacktricks.svg"
+        },
+        {
+            "name": "hacker-recipes",
+            "check": "test -f /usr/share/applications/hacker-recipes.desktop",
+            "install": "wget -q -O /usr/share/pixmaps/hacker-recipes.ico https://www.thehacker.recipes/images/favicon.ico && printf '[Desktop Entry]\\nName=The Hacker Recipes\\nComment=Red team/AD attack methodology wiki\\nExec=xdg-open https://www.thehacker.recipes/\\nIcon=/usr/share/pixmaps/hacker-recipes.ico\\nTerminal=false\\nType=Application\\nCategories=Network;Security;\\n' > /usr/share/applications/hacker-recipes.desktop",
+            "remove": "rm -f /usr/share/applications/hacker-recipes.desktop /usr/share/pixmaps/hacker-recipes.ico"
         },
         {
             "name": "sliver-client",
@@ -194,7 +235,7 @@
     "git": [
         {
             "name": "pidcat",
-            "check": "command -v pidcat",
+            "check": "[ -x /usr/local/bin/pidcat ]",
             "repo": "https://github.com/JakeWharton/pidcat.git",
             "ref": "2.1.0",
             "post_clone": "chmod +x /opt/pidcat/pidcat.py && printf '#!/bin/sh\\nexec python3 /opt/pidcat/pidcat.py \"$@\"\\n' > /usr/local/bin/pidcat && chmod +x /usr/local/bin/pidcat",
@@ -246,7 +287,7 @@
         },
         {
             "name": "responder",
-            "check": "command -v responder",
+            "check": "[ -x /usr/local/bin/responder ]",
             "repo": "https://github.com/lgandx/Responder.git",
             "post_clone": "apt-get install -y python3-pip python3-netifaces && chmod +x /opt/responder/Responder.py && printf '#!/bin/sh\\nexec python3 /opt/responder/Responder.py \"$@\"\\n' > /usr/local/bin/responder && chmod +x /usr/local/bin/responder",
             "remove": "rm -rf /opt/responder && rm -f /usr/local/bin/responder"

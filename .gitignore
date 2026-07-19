@@ -19,3 +19,4 @@
 # Local .deb build output
 /build/
 /dist/
+*.deb

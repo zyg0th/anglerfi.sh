@@ -237,8 +237,14 @@ check_installed() {
         gobin="$("${AS_USER[@]}" "$GO" env GOPATH 2>/dev/null)/bin/$name"
         [ -x "$gobin" ] && return 0
     fi
-    if [ "$kind" = pipx ] && [ "${#AS_USER[@]}" -gt 0 ]; then
-        "${AS_USER[@]}" "$BASH_BIN" -c "$chk" >/dev/null 2>&1 && return 0
+    if [ "$kind" = pipx ]; then
+        # The script's own pinned PATH never includes ~/.local/bin, which is
+        # where pipx actually drops its shims - so "command -v" in the
+        # catalog's check always misses, sudo or not. Ask pipx itself where
+        # it put things instead of guessing a path.
+        local pipx_bin
+        pipx_bin="$("${AS_USER[@]}" "$PIPX" environment --value PIPX_BIN_DIR 2>/dev/null)"
+        [ -n "$pipx_bin" ] && [ -x "$pipx_bin/$name" ] && return 0
     fi
     return 1
 }
@@ -253,6 +259,7 @@ install_one() {
             if [ -z "$version" ] && check_installed "$name" apt; then
                 echo "anglerfi.sh: $name already installed (apt)"
             else
+                echo "anglerfi.sh: apt will install $name"
                 need_privilege_from_catalog
                 local pre_cmd
                 pre_cmd="$("$JQ" -r --arg n "$name" '.apt[] | select(.name==$n) | .pre_install' "$PKG_FILE")"
@@ -275,6 +282,7 @@ install_one() {
             if [ -z "$version" ] && check_installed "$name" go; then
                 echo "anglerfi.sh: $name already installed (go)"
             else
+                echo "anglerfi.sh: go will install $name"
                 [ -n "$GO" ] || { echo "anglerfi.sh: go not found, run --setup first" >&2; exit 1; }
                 local gopkg
                 gopkg="$("$JQ" -r --arg n "$name" '.go[] | select(.name==$n) | .package' "$PKG_FILE")"
@@ -287,6 +295,7 @@ install_one() {
             if [ -z "$version" ] && check_installed "$name" pipx; then
                 echo "anglerfi.sh: $name already installed (pipx)"
             else
+                echo "anglerfi.sh: pipx will install $name"
                 [ -n "$PIPX" ] || { echo "anglerfi.sh: pipx not found, run --setup first" >&2; exit 1; }
                 local pipxpkg
                 pipxpkg="$("$JQ" -r --arg n "$name" '.pipx[] | select(.name==$n) | .package' "$PKG_FILE")"
@@ -302,6 +311,7 @@ install_one() {
             if [ -z "$version" ] && check_installed "$name" git; then
                 echo "anglerfi.sh: $name already installed (git)"
             else
+                echo "anglerfi.sh: git will install $name"
                 [ -n "$GIT" ] || { echo "anglerfi.sh: git not found, run --setup first" >&2; exit 1; }
                 need_privilege_from_catalog
                 local repo ref post_clone target_dir
@@ -312,7 +322,7 @@ install_one() {
                 target_dir="/opt/$name"
                 "${ELEV[@]}" rm -rf "$target_dir"
                 if [ -n "$ref" ] && [ "$ref" != "null" ]; then
-                    "${ELEV[@]}" "$GIT" clone --quiet --depth 1 --branch "$ref" "$repo" "$target_dir"
+                    "${ELEV[@]}" "$GIT" -c advice.detachedHead=false clone --quiet --depth 1 --branch "$ref" "$repo" "$target_dir"
                 else
                     "${ELEV[@]}" "$GIT" clone --quiet --depth 1 "$repo" "$target_dir"
                 fi
@@ -328,6 +338,7 @@ install_one() {
             if check_installed "$name" manual; then
                 echo "anglerfi.sh: $name already installed (manual)"
             else
+                echo "anglerfi.sh: manually installing $name"
                 need_privilege_from_catalog
                 local install_cmd post_cmd artifact expected_hash actual_hash
                 install_cmd="$("$JQ" -r --arg n "$name" '.manual[] | select(.name==$n) | .install' "$PKG_FILE")"
@@ -364,6 +375,7 @@ remove_one() {
 
     case "$kind" in
         apt)
+            echo "anglerfi.sh: apt will remove $name"
             need_privilege_from_catalog
             "${ELEV[@]}" "$APT_GET" remove -y "$name"
             ;;
@@ -371,17 +383,19 @@ remove_one() {
             local gobin
             gobin="$("${AS_USER[@]}" "$GO" env GOPATH 2>/dev/null)/bin/$name"
             if [ -e "$gobin" ]; then
+                echo "anglerfi.sh: go will remove $name"
                 rm -f "$gobin"
-                echo "anglerfi.sh: $name removed (go)"
             else
                 echo "anglerfi.sh: $name not installed (go), nothing to remove"
             fi
             ;;
         pipx)
             [ -n "$PIPX" ] || { echo "anglerfi.sh: pipx not found" >&2; exit 1; }
+            echo "anglerfi.sh: pipx will remove $name"
             "${AS_USER[@]}" "$PIPX" uninstall "$name"
             ;;
         git)
+            echo "anglerfi.sh: git will remove $name"
             need_privilege_from_catalog
             local remove_cmd
             remove_cmd="$("$JQ" -r --arg n "$name" '.git[] | select(.name==$n) | .remove' "$PKG_FILE")"
@@ -393,6 +407,7 @@ remove_one() {
             fi
             ;;
         manual)
+            echo "anglerfi.sh: manually removing $name"
             need_privilege_from_catalog
             local remove_cmd
             remove_cmd="$("$JQ" -r --arg n "$name" '.manual[] | select(.name==$n) | .remove' "$PKG_FILE")"
@@ -442,6 +457,28 @@ resolve_targets() {
     printf '%s\n' "$members" | grep . | sort -u || true
 }
 
+# Groups a newline-separated package list by kind - manual, apt, git, go,
+# pipx, in that order - instead of leaving a batch install/remove in
+# whatever order sort -u happened to alphabetize the mix into. Keeps
+# alphabetical order within each kind.
+order_by_kind() {
+    local pkg_list="$1" kind pkg
+    local -a manual_pkgs=() apt_pkgs=() git_pkgs=() go_pkgs=() pipx_pkgs=() other_pkgs=()
+    while IFS= read -r pkg; do
+        [ -n "$pkg" ] || continue
+        kind="$(find_kind "$pkg")"
+        case "$kind" in
+            manual) manual_pkgs+=("$pkg") ;;
+            apt)    apt_pkgs+=("$pkg") ;;
+            git)    git_pkgs+=("$pkg") ;;
+            go)     go_pkgs+=("$pkg") ;;
+            pipx)   pipx_pkgs+=("$pkg") ;;
+            *)      other_pkgs+=("$pkg") ;;
+        esac
+    done <<< "$pkg_list"
+    printf '%s\n' "${manual_pkgs[@]}" "${apt_pkgs[@]}" "${git_pkgs[@]}" "${go_pkgs[@]}" "${pipx_pkgs[@]}" "${other_pkgs[@]}" | grep . || true
+}
+
 cmd_install() {
     local target="$1" version="${2:-}" excludes_csv="${3:-}" adds_csv="${4:-}"
     local resolved count
@@ -462,9 +499,10 @@ cmd_install() {
         exit 1
     fi
     prime_sudo_if_needed "$resolved"
-    local pkg failed=()
+    local pkg failed=() first=1
     while IFS= read -r pkg; do
         [ -n "$pkg" ] || continue
+        [ "$first" -eq 1 ] && first=0 || echo
         # Run each package in its own subshell so one failure - however it
         # fails, exit or return - doesn't set -e the whole batch out from
         # under the rest of the meta group (e.g. `-i web` shouldn't skip
@@ -472,7 +510,7 @@ cmd_install() {
         if ! ( install_one "$pkg" "$version" ); then
             failed+=("$pkg")
         fi
-    done <<< "$resolved"
+    done <<< "$(order_by_kind "$resolved")"
     if [ "${#failed[@]}" -gt 0 ]; then
         echo "anglerfi.sh: failed to install: ${failed[*]}" >&2
         exit 1
@@ -483,13 +521,14 @@ cmd_remove() {
     local target="$1" resolved
     resolved="$(resolve_targets "$target")"
     prime_sudo_if_needed "$resolved"
-    local pkg failed=()
+    local pkg failed=() first=1
     while IFS= read -r pkg; do
         [ -n "$pkg" ] || continue
+        [ "$first" -eq 1 ] && first=0 || echo
         if ! ( remove_one "$pkg" ); then
             failed+=("$pkg")
         fi
-    done <<< "$resolved"
+    done <<< "$(order_by_kind "$resolved")"
     if [ "${#failed[@]}" -gt 0 ]; then
         echo "anglerfi.sh: failed to remove: ${failed[*]}" >&2
         exit 1
